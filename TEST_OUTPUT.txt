@@ -1,0 +1,18 @@
+PASS: 506 race simulations, 12 laps, both pilots, pits, standings
+PASS: 18821 short/full-distance save roundtrips; CRC, semantic validation, truncation at all 640 bytes, readback/write/rename failures, backup recovery
+PASS: 200000 deterministic weather steps; 505 wetness/tyre save continuations; dry/rain/drying strategy improves both positions; AI and qualifying weather
+PASS: 36300 thermal combinations; cold outlaps, overheating/cooling, traffic snapshot, v3 migration and temperature saves; 84/100 undercuts and 46/100 overcuts gain a position
+PASS live clock: pause, speed 1/2/5, 23 tracks, 12 laps
+PASS: 253 deterministic strategy cases (attack/save, tyres, pit, repeatability)
+PASS: 460 qualifying sessions, real grid used at race start
+PASS: 11 distinct 48x32 logos, valid bitmap bounds, nonempty
+PASS: 14291 UI frames, 111410 text labels, zero overlaps/offscreen text; left navigation, qualification flow
+PASS: 10000 six-sprint calendars; two complete 23-round seasons, 57 practices/29 qualifying sessions/29 races each; 3774 save/reload checkpoints
+PASS: 8096 marker layouts, all 23 tracks/22 positions, coincident and lapped cars; correct neighbours, no clipped or overlapping labels
+PASS: 4109 bitmap snapshots from real UI, fonts, badges and track data
+PASS: 4109 screenshot baselines match
+PASS: generator processes all 23 circuit IDs and rejects missing real tracks
+PASS: application.fam valid, 0.7.1 id/version, source files present
+PASS: all visible Russian labels supported, 5 distinct glyph pairs, no bad shortening
+
+ALL TESTS PASSED. Host checks complete; device checks are separate.
