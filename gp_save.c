@@ -2,7 +2,7 @@
 #include "tyre_model.h"
 #include <string.h>
 #include <limits.h>
-#define SAVE_VERSION 5u /* Binary layout AND simulation rules version. */
+#define SAVE_VERSION 6u /* Binary layout AND simulation rules version. */
 static void put32(uint8_t* p,uint32_t n){for(unsigned i=0;i<4;i++)p[i]=(uint8_t)(n>>(8*i));}
 static uint32_t get32(const uint8_t* p){uint32_t n=0;for(unsigned i=0;i<4;i++)n|=(uint32_t)p[i]<<(8*i);return n;}
 static uint32_t crc32(const uint8_t* p,size_t n){
@@ -29,6 +29,12 @@ static bool valid(const GpSavedGame* s){
     if(r->incident_driver>GP_DRIVER_COUNT||r->incident_serial>GP_DRIVER_COUNT)return false;
     if(r->incident_driver==GP_DRIVER_COUNT){if(r->incident_pending||r->incident_serial)return false;}
     else if(!r->incident_serial||r->drivers[r->incident_driver].status==GpDriverRunning)return false;
+    for(unsigned i=0;i<2;i++){
+        const GpBattleReport* b=&r->battle[i];
+        if(b->result>GpBattleMistake)return false;
+        if(b->result==GpBattleNone){if(b->opponent||b->lap)return false;}
+        else if(!r->battle_rng||b->opponent>=GP_DRIVER_COUNT||b->opponent==r->team*2+i||!b->lap||b->lap>r->lap)return false;
+    }
     unsigned retired=0;
     if(s->clock.progress_ticks>=GP_LAP_MS||s->clock.speed_index>2)return false;
     for(unsigned i=0;i<2;i++)if((unsigned)r->pace[i]>GpPaceAttack||(unsigned)r->pit_tyres[i]>=GpTyreCount)return false;
@@ -80,6 +86,8 @@ bool gp_save_encode(const GpSavedGame* s,uint8_t out[GP_SAVE_BYTES]){
     for(unsigned i=0;i<GP_DRIVER_COUNT;i++)BYTE(s->weekend.qualifying.temperature[i]);
     for(unsigned i=0;i<GP_DRIVER_COUNT;i++){BYTE(r->drivers[i].status);BYTE(r->drivers[i].retired_lap);}
     WORD(r->incident_rng);BYTE(r->event_remaining);BYTE(r->incident_driver);BYTE(r->incident_serial);BYTE(r->incident_pending);
+    WORD(r->battle_rng);
+    for(unsigned i=0;i<2;i++){BYTE(r->battle[i].result);BYTE(r->battle[i].opponent);BYTE(r->battle[i].lap);}
 #undef BYTE
 #undef WORD
     put32(out+GP_SAVE_BYTES-4,crc32(out,GP_SAVE_BYTES-4));return true;
@@ -88,7 +96,7 @@ GpSaveStatus gp_save_decode(const uint8_t* data,size_t len,GpSavedGame* out){
     if((len!=GP_SAVE_BYTES&&len!=384u)||memcmp(data,"GPM6",4))return GpSaveCorrupt;
     if(get32(data+len-4)!=crc32(data,len-4))return GpSaveCorrupt;
     uint32_t version=get32(data+4);
-    if(version!=1u&&version!=2u&&version!=3u&&version!=4u&&version!=SAVE_VERSION)return GpSaveVersion;
+    if(version!=1u&&version!=2u&&version!=3u&&version!=4u&&version!=5u&&version!=SAVE_VERSION)return GpSaveVersion;
     if((version==1u&&len!=384u)||(version>=2u&&len!=GP_SAVE_BYTES))return GpSaveCorrupt;
     GpSavedGame s={0};s.sequence=get32(data+8);GpRace* r=&s.race;size_t n=12;
 #define BYTE() data[n++]
@@ -137,6 +145,10 @@ GpSaveStatus gp_save_decode(const uint8_t* data,size_t len,GpSavedGame* out){
         if(r->event==GpEventRed)return GpSaveCorrupt;
         r->incident_driver=GP_DRIVER_COUNT;
         r->event_remaining=r->event==GpEventNone?0:1;
+    }
+    if(version>=6u){
+        WORD(r->battle_rng);
+        for(unsigned i=0;i<2;i++){r->battle[i].result=BYTE();r->battle[i].opponent=BYTE();r->battle[i].lap=BYTE();}
     }
 #undef BYTE
 #undef WORD

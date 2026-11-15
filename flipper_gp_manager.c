@@ -41,6 +41,7 @@ typedef struct {
     GpScreen qual_return;
     GpScreen weather_return;
     GpScreen engineer_return;
+    bool engineer_battle;
     GpSaveStatus save_status;
     GpSaveIo storage;
     bool full_distance,save_requested,save_exit,load_requested,autosave_blocked;
@@ -300,7 +301,30 @@ static void draw_retired(Canvas* c,const GpRace* r){
     snprintf(b,sizeof(b),"СХОД НА КРУГЕ %u",d->retired_lap);txt(c,2,28,b);
     txt(c,2,41,"ДЕРЖИ OK: 2-Й ПИЛОТ");
 }
+static void draw_battle(Canvas* c,const GpApp* a){
+    const GpRace* r=&a->race;char b[48];const GpBattleReport* report=&r->battle[r->active_slot];
+    snprintf(b,sizeof(b),"БОРЬБА: %s",gp_driver_info(r->player)->code);top(c,b);
+    if(r->drivers[r->player].status!=GpDriverRunning){draw_retired(c,r);bottom(c,"<> СВОДКА OK НАЗАД");return;}
+    static const char* const names[]={"НЕТ БОРЬБЫ","ОБОГНАЛ","СДЕРЖАЛ","ЗАСТРЯЛ ЗА","ПРОПУСТИЛ","ОШИБКА ЗА"};
+    if(report->result)snprintf(b,sizeof(b),"%s %s КР%u",names[report->result],gp_driver_info(report->opponent)->code,report->lap);
+    else snprintf(b,sizeof(b),"НЕТ СООБЩЕНИЙ");
+    txt(c,2,15,b);
+    uint8_t pos=gp_position(r,r->player),count=gp_running_count(r);
+    if(pos>1){
+        uint8_t id=r->ranking[pos-2];uint32_t gap=r->drivers[r->player].time_ms-r->drivers[id].time_ms;
+        if(gap>999999)gap=999999;
+        snprintf(b,sizeof(b),"ВПЕР %s +%lu.%lu",gp_driver_info(id)->code,(unsigned long)(gap/1000),(unsigned long)(gap%1000/100));
+    }else snprintf(b,sizeof(b),"ВПЕРЕДИ НИКОГО");
+    txt(c,2,28,b);
+    if(pos<count){
+        uint8_t id=r->ranking[pos];uint32_t gap=r->drivers[id].time_ms-r->drivers[r->player].time_ms;
+        if(gap>999999)gap=999999;
+        snprintf(b,sizeof(b),"СЗАДИ %s +%lu.%lu",gp_driver_info(id)->code,(unsigned long)(gap/1000),(unsigned long)(gap%1000/100));
+    }else snprintf(b,sizeof(b),"СЗАДИ НИКОГО");
+    txt(c,2,41,b);bottom(c,"<> СВОДКА OK НАЗАД");
+}
 static void draw_engineer(Canvas* c,const GpApp* a){
+    if(a->engineer_battle){draw_battle(c,a);return;}
     const GpRace* r=&a->race;char b[48];top(c,"ГОНОЧНЫЙ ИНЖЕНЕР");
     if(r->event_remaining==1)snprintf(b,sizeof(b),"ПОСЛЕДНИЙ КРУГ %s",event_short(r->event));
     else snprintf(b,sizeof(b),"%s: ЕЩЁ %u КР",event_short(r->event),r->event_remaining);
@@ -311,7 +335,7 @@ static void draw_engineer(Canvas* c,const GpApp* a){
         snprintf(b,sizeof(b),"%s: %s",gp_driver_info(r->incident_driver)->code,gp_retirement_name(d->status));txt(c,2,28,b);
         snprintf(b,sizeof(b),"СХОД НА КРУГЕ %u",d->retired_lap);txt(c,2,41,b);
     }else txt(c,2,28,"ПРОИСШЕСТВИЙ НЕТ");
-    bottom(c,"OK/BACK: ПРОДОЛЖИТЬ");
+    bottom(c,"<> БОРЬБА OK НАЗАД");
 }
 static void draw_red(Canvas* c,const GpApp* a){
     const GpRace* r=&a->race;char b[48];top(c,"КРАСНЫЙ ФЛАГ");
@@ -376,7 +400,7 @@ static void draw_strategy(Canvas* c,const GpApp* a){
     bottom(c,"^V ШИНЫ OK ПИТ");
 }
 static void draw_help(Canvas* c,const GpApp* a){
-    char b[32];snprintf(b,sizeof(b),"ПОМОЩЬ %u/16",a->help_page+1);top(c,b);
+    char b[32];snprintf(b,sizeof(b),"ПОМОЩЬ %u/17",a->help_page+1);top(c,b);
     if(a->help_page==0){
         txt(c,2,15,"<>: ЭКРАНЫ");
         txt(c,2,28,"BACK: МЕНЮ ПАУЗЫ");
@@ -425,6 +449,9 @@ static void draw_help(Canvas* c,const GpApp* a){
     }else if(a->help_page==15){
         txt(c,2,15,"КРАСНЫЙ: ГОНКА СТОИТ");txt(c,2,28,"^V ШИНЫ <> ПИЛОТ");txt(c,2,41,"OK РЕСТАРТ BACK МЕНЮ");
     }
+    if(a->help_page==16){
+        txt(c,2,15,"ИНЖЕНЕР: <> СВОДКИ");txt(c,2,28,"ДЕРЖИ OK: ПИЛОТ");txt(c,2,41,"АТАКА: ШАНС И РИСК");
+    }
     bottom(c,"<> СТР. OK ЗАКРЫТЬ");
 }
 static void draw_cb(Canvas* c,void* ctx){
@@ -439,7 +466,7 @@ static void draw_cb(Canvas* c,void* ctx){
     case ScreenMain:{
         for(unsigned y=0;y<10;y++)for(unsigned x=0;x<34;x++)
             if(gp_game_logo[y]&(1ULL<<x))canvas_draw_dot(c,2+x,y);
-        txt(c,42,0,"GP 0.7.2");canvas_draw_line(c,0,11,127,11);
+        txt(c,42,0,"GP 0.7.3");canvas_draw_line(c,0,11,127,11);
         static const char* const items[]={"ПРОДОЛЖИТЬ","УИК-ЭНДЫ","НОВАЯ ГОНКА","УПРАВЛЕНИЕ","ВЫХОД"};
         uint8_t first=a->menu_item>2?a->menu_item-2:0;
         for(uint8_t row=0;row<3;row++)txt(c,8,15+row*13,items[first+row]);
@@ -560,6 +587,8 @@ static void show_help(GpApp* a){
 }
 static void handle_input(GpApp* a,const InputEvent* e){
     if(a->screen==ScreenEngineer){
+        if(e->type==InputTypeShort&&(e->key==InputKeyLeft||e->key==InputKeyRight))a->engineer_battle=!a->engineer_battle;
+        if(e->type==InputTypeLong&&e->key==InputKeyOk)gp_select_driver(&a->race,1-a->race.active_slot);
         if(e->type==InputTypeShort&&(e->key==InputKeyOk||e->key==InputKeyBack)){
             a->race.incident_pending=false;a->screen=a->engineer_return;
             if(!a->autosave_blocked)a->save_requested=true;
@@ -581,7 +610,7 @@ static void handle_input(GpApp* a,const InputEvent* e){
         return;
     }
     if(e->type==InputTypeLong&&e->key==InputKeyDown&&race_screen(a->screen)){
-        a->engineer_return=a->screen;a->screen=ScreenEngineer;return;
+        a->engineer_return=a->screen;a->engineer_battle=true;a->screen=ScreenEngineer;return;
     }
     if(a->screen==ScreenWeather){
         if(e->type==InputTypeShort&&(e->key==InputKeyBack||e->key==InputKeyOk))a->screen=a->weather_return;
@@ -687,8 +716,8 @@ static void handle_input(GpApp* a,const InputEvent* e){
     }
     if(a->screen==ScreenHelp){
         if(e->type!=InputTypeShort)return;
-        if(e->key==InputKeyRight)a->help_page=(a->help_page+1)%16;
-        else if(e->key==InputKeyLeft)a->help_page=(a->help_page+15)%16;
+        if(e->key==InputKeyRight)a->help_page=(a->help_page+1)%17;
+        else if(e->key==InputKeyLeft)a->help_page=(a->help_page+16)%17;
         else if(e->key==InputKeyOk||e->key==InputKeyBack)a->screen=a->help_return;
         return;
     }
@@ -858,7 +887,7 @@ static void process_storage(GpApp* a){
         if(a->weekend.active)a->full_distance=a->weekend.full_distance;
         if(a->screen==ScreenMap){
             if(a->race.event==GpEventRed)a->screen=ScreenRedFlag;
-            else if(a->race.incident_pending){a->engineer_return=ScreenMap;a->screen=ScreenEngineer;}
+            else if(a->race.incident_pending){a->engineer_return=ScreenMap;a->engineer_battle=false;a->screen=ScreenEngineer;}
         }
         a->grid_top=0;
         a->standings_top=0;a->autosave_blocked=false;
@@ -891,7 +920,7 @@ static void advance_time(GpApp* a,uint32_t now){
                     a->screen=ScreenResults;weekend_sync(a);break;
                 }
                 if(a->race.event==GpEventRed){a->clock.progress_ticks=0;a->screen=ScreenRedFlag;break;}
-                if(a->race.incident_pending&&!pending){a->engineer_return=a->screen;a->clock.progress_ticks=0;a->screen=ScreenEngineer;break;}
+                if(a->race.incident_pending&&!pending){a->engineer_return=a->screen;a->engineer_battle=false;a->clock.progress_ticks=0;a->screen=ScreenEngineer;break;}
             }
         }
 }

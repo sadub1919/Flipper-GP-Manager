@@ -46,29 +46,29 @@ static const GpDriverInfo gp_names[GP_DRIVER_COUNT] = {
 /* Bundled track catalogue. Full-distance races use actual_laps;
    this data is not a live feed of the official championship calendar. */
 static const GpTrackInfo gp_tracks[GP_TRACK_COUNT] = {
-    {"MELBOURNE", "Albert Park Circuit", 58, 5278, 10, 3},
-    {"SHANGHAI", "Shanghai International Circuit", 56, 5451, 9, 3},
-    {"SUZUKA", "Suzuka International Racing Course", 53, 5807, 11, 5},
-    {"MIAMI", "Miami International Autodrome", 57, 5412, 8, 3},
-    {"MONTREAL", "Circuit Gilles Villeneuve", 70, 4361, 9, 3},
-    {"MONACO", "Circuit de Monaco", 78, 3337, 11, 5},
-    {"BARCELONA", "Circuit de Barcelona-Catalunya", 66, 4657, 11, 4},
-    {"SPIELBERG", "Red Bull Ring", 71, 4318, 9, 3},
-    {"SILVERSTONE", "Silverstone Circuit", 52, 5891, 10, 4},
-    {"SPA", "Circuit de Spa-Francorchamps", 44, 7004, 12, 5},
-    {"HUNGARORING", "Hungaroring", 70, 4381, 12, 4},
-    {"ZANDVOORT", "Circuit Zandvoort", 72, 4259, 12, 4},
-    {"MONZA", "Autodromo Nazionale Monza", 53, 5793, 7, 2},
-    {"MADRID", "Madring", 57, 5474, 10, 4},
-    {"BAKU", "Baku City Circuit", 51, 6003, 9, 4},
-    {"SEPANG", "Sepang International Circuit", 56, 5543, 12, 4},
-    {"SINGAPORE", "Marina Bay Street Circuit", 62, 4940, 11, 5},
-    {"AUSTIN", "Circuit of the Americas", 56, 5513, 11, 4},
-    {"MEXICO", "Autodromo Hermanos Rodriguez", 71, 4304, 8, 3},
-    {"INTERLAGOS", "Autodromo Jose Carlos Pace", 71, 4309, 11, 4},
-    {"LAS VEGAS", "Las Vegas Strip Circuit", 50, 6201, 8, 3},
-    {"LUSAIL", "Lusail International Circuit", 57, 5419, 11, 4},
-    {"YAS MARINA", "Yas Marina Circuit", 58, 5281, 9, 3},
+    {"MELBOURNE", "Albert Park Circuit", 58, 5278, 10, 3, 3},
+    {"SHANGHAI", "Shanghai International Circuit", 56, 5451, 9, 3, 4},
+    {"SUZUKA", "Suzuka International Racing Course", 53, 5807, 11, 5, 2},
+    {"MIAMI", "Miami International Autodrome", 57, 5412, 8, 3, 3},
+    {"MONTREAL", "Circuit Gilles Villeneuve", 70, 4361, 9, 3, 4},
+    {"MONACO", "Circuit de Monaco", 78, 3337, 11, 5, 1},
+    {"BARCELONA", "Circuit de Barcelona-Catalunya", 66, 4657, 11, 4, 2},
+    {"SPIELBERG", "Red Bull Ring", 71, 4318, 9, 3, 4},
+    {"SILVERSTONE", "Silverstone Circuit", 52, 5891, 10, 4, 3},
+    {"SPA", "Circuit de Spa-Francorchamps", 44, 7004, 12, 5, 5},
+    {"HUNGARORING", "Hungaroring", 70, 4381, 12, 4, 1},
+    {"ZANDVOORT", "Circuit Zandvoort", 72, 4259, 12, 4, 2},
+    {"MONZA", "Autodromo Nazionale Monza", 53, 5793, 7, 2, 5},
+    {"MADRID", "Madring", 57, 5474, 10, 4, 3},
+    {"BAKU", "Baku City Circuit", 51, 6003, 9, 4, 5},
+    {"SEPANG", "Sepang International Circuit", 56, 5543, 12, 4, 4},
+    {"SINGAPORE", "Marina Bay Street Circuit", 62, 4940, 11, 5, 1},
+    {"AUSTIN", "Circuit of the Americas", 56, 5513, 11, 4, 3},
+    {"MEXICO", "Autodromo Hermanos Rodriguez", 71, 4304, 8, 3, 3},
+    {"INTERLAGOS", "Autodromo Jose Carlos Pace", 71, 4309, 11, 4, 3},
+    {"LAS VEGAS", "Las Vegas Strip Circuit", 50, 6201, 8, 3, 5},
+    {"LUSAIL", "Lusail International Circuit", 57, 5419, 11, 4, 2},
+    {"YAS MARINA", "Yas Marina Circuit", 58, 5281, 9, 3, 4},
 };
 
 static uint32_t gp_random(GpRace* race) {
@@ -119,6 +119,7 @@ void gp_race_start(GpRace* race,uint8_t team,uint8_t slot,uint8_t track,uint32_t
     race->rng_state=seed?seed:0xF1002026u;
     race->incident_rng=seed^0x7202026u;if(!race->incident_rng)race->incident_rng=1;
     race->incident_driver=GP_DRIVER_COUNT;
+    race->battle_rng=seed^0x7302026u;if(!race->battle_rng)race->battle_rng=1;
     gp_select_driver(race,slot);
     for(uint8_t i=0;i<GP_DRIVER_COUNT;++i) {
         GpDriver* d=&race->drivers[i];
@@ -190,10 +191,10 @@ bool gp_restart_race(GpRace* race){
     return gp_set_event(race,GpEventSafetyCar,1);
 }
 static uint32_t incident_random(GpRace* race){uint32_t x=race->incident_rng;x^=x<<13;x^=x>>17;x^=x<<5;return race->incident_rng=x;}
-static void incidents(GpRace* race){
+static void incidents(GpRace* race,const uint8_t paces[GP_DRIVER_COUNT]){
     if(!race->incident_rng||race->event!=GpEventNone||race->lap<2||race->lap>=race->total_laps-1)return;
     uint8_t id=race->ranking[incident_random(race)%gp_running_count(race)];
-    GpDriver* d=&race->drivers[id];GpPace pace=id/2==race->team?race->pace[id%2]:GpPaceNormal;
+    GpDriver* d=&race->drivers[id];GpPace pace=paces[id];
     unsigned risk=35000;
     if(pace==GpPaceAttack)risk+=25000;
     if(race->weather.wetness>=75)risk+=15000;
@@ -236,15 +237,79 @@ static bool pit_traffic(const GpRace* race,uint8_t driver,const uint32_t* previo
 }
 bool gp_pit_traffic(const GpRace* race,uint8_t driver){return pit_traffic(race,driver,NULL);}
 
-static void gp_apply_one(GpRace* race,uint8_t index,const uint32_t previous[GP_DRIVER_COUNT]) {
+/* Decide from the beginning-of-lap model, before any car has moved. */
+GpPace gp_driver_pace(const GpRace* race,uint8_t id){
+    if(id>=GP_DRIVER_COUNT||race->drivers[id].status!=GpDriverRunning)return GpPaceConserve;
+    if(race->event==GpEventSafetyCar||race->event==GpEventVsc)return GpPaceConserve;
+    if(id/2==race->team)return race->pace[id%2];
+    if(!race->battle_rng||!race->lap)return GpPaceNormal;
+    const GpDriver* d=&race->drivers[id];
+    if(d->wear<30||gp_tyre_temperature_state(d->tyre,d->temperature)>0||gp_weather_penalty(&race->weather,d->tyre)>4500)return GpPaceConserve;
+    uint8_t pos=gp_position(race,id);
+    if(d->wear>45&&race->event==GpEventNone){
+        if(pos>1&&d->time_ms-race->drivers[race->ranking[pos-2]].time_ms<1800)return GpPaceAttack;
+        if(pos<gp_running_count(race)&&race->drivers[race->ranking[pos]].time_ms-d->time_ms<1000)return GpPaceAttack;
+    }
+    return GpPaceNormal;
+}
+static uint32_t battle_random(GpRace* race){
+    uint32_t x=race->battle_rng;x^=x<<13;x^=x>>17;x^=x<<5;return race->battle_rng=x;
+}
+static void report_battle(GpRace* race,uint8_t id,uint8_t other,GpBattleResult result){
+    if(id/2==race->team)race->battle[id%2]=(GpBattleReport){result,other,(uint8_t)(race->lap+1)};
+}
+/* Insertion classification: each crossed opponent requires an on-track pass.
+   Pit stops and retired cars bypass the contest; there are no phantom passes
+   in their telemetry. Delays are included in both cumulative and lap time. */
+static void resolve_battles(GpRace* race,uint32_t pitted,const uint8_t paces[GP_DRIVER_COUNT]){
+    for(unsigned i=1;i<GP_DRIVER_COUNT;i++){
+        uint8_t id=race->ranking[i],j=i;GpDriver* d=&race->drivers[id];
+        while(j>0){
+            uint8_t other=race->ranking[j-1];GpDriver* ahead=&race->drivers[other];
+            if(!gp_driver_precedes(d,ahead))break;
+            bool contest=d->status==GpDriverRunning&&ahead->status==GpDriverRunning&&!(pitted&((1u<<id)|(1u<<other)));
+            if(contest){
+                uint32_t advantage=ahead->time_ms-d->time_ms;
+                int chance=8+10*gp_track_info(race->track)->overtaking;
+                chance+=(int)(advantage>5000?20:advantage/250);
+                chance+=((int)d->wear-ahead->wear)/4;
+                chance+=(int)gp_driver_info(id)->rating-gp_driver_info(other)->rating;
+                chance+=paces[id]==GpPaceAttack?18:(paces[id]==GpPaceConserve?-15:0);
+                chance+=paces[other]==GpPaceAttack?-10:(paces[other]==GpPaceConserve?8:0);
+                if(chance<3)chance=3;
+                if(chance>95)chance=95;
+                uint32_t roll=race->event==GpEventNone?battle_random(race):0;
+                if(race->event!=GpEventNone||roll%100u>=(unsigned)chance){
+                    bool mistake=race->event==GpEventNone&&paces[id]==GpPaceAttack&&(roll/100u)%100u<8;
+                    uint32_t target=ahead->time_ms+(mistake?1050:250);
+                    /* Do not displace a car already passed into an unsorted
+                       classification when several cars share a tiny gap. */
+                    if(j<i&&target>race->drivers[race->ranking[j]].time_ms)target=race->drivers[race->ranking[j]].time_ms;
+                    uint32_t delay=target-d->time_ms;
+                    d->time_ms=target;d->last_lap_ms+=delay;
+                    if(mistake)d->wear=d->wear>2?d->wear-2:0;
+                    if(race->event==GpEventNone){
+                        report_battle(race,id,other,mistake?GpBattleMistake:GpBattleBlocked);
+                        report_battle(race,other,id,GpBattleHeld);
+                    }
+                    break;
+                }
+                report_battle(race,id,other,GpBattlePassed);report_battle(race,other,id,GpBattleLost);
+            }
+            race->ranking[j]=other;j--;
+        }
+        race->ranking[j]=id;
+    }
+}
+
+static bool gp_apply_one(GpRace* race,uint8_t index,const uint32_t previous[GP_DRIVER_COUNT],GpPace pace) {
     GpDriver* d=&race->drivers[index];
-    if(d->status!=GpDriverRunning)return;
+    if(d->status!=GpDriverRunning)return false;
     const GpTrackInfo* track=gp_track_info(race->track);
     const GpDriverInfo* info=gp_driver_info(index);
     const GpTeamInfo* team=gp_team_info(info->team);
     bool own=info->team==race->team;
     uint8_t slot=index%2;
-    GpPace pace=own?race->pace[slot]:GpPaceNormal;
     bool neutral=race->event==GpEventSafetyCar||race->event==GpEventVsc;
     if(neutral)pace=GpPaceConserve;
     bool pit=false;
@@ -313,15 +378,18 @@ static void gp_apply_one(GpRace* race,uint8_t index,const uint32_t previous[GP_D
     d->wear=(d->wear>(uint8_t)wear)?(uint8_t)(d->wear-wear):0;
     d->last_lap_ms=(laptime>1000)?(uint32_t)laptime:1000u;
     d->time_ms+=d->last_lap_ms;
+    return pit;
 }
 
 void gp_advance_lap(GpRace* race) {
     if(gp_race_finished(race)||race->event==GpEventRed)return;
     GpEvent active=race->event;
     uint32_t previous[GP_DRIVER_COUNT];
-    for(uint8_t i=0;i<GP_DRIVER_COUNT;++i)previous[i]=race->drivers[i].time_ms;
-    for(uint8_t i=0;i<GP_DRIVER_COUNT;++i)gp_apply_one(race,i,previous);
-    ++race->lap;gp_weather_step(&race->weather);gp_rank(race);
+    uint8_t paces[GP_DRIVER_COUNT];uint32_t pitted=0;
+    for(uint8_t i=0;i<GP_DRIVER_COUNT;++i){previous[i]=race->drivers[i].time_ms;paces[i]=gp_driver_pace(race,i);}
+    for(uint8_t i=0;i<GP_DRIVER_COUNT;++i)if(gp_apply_one(race,i,previous,paces[i]))pitted|=1u<<i;
+    if(race->battle_rng&&race->lap>0)resolve_battles(race,pitted,paces);else gp_rank(race);
+    ++race->lap;gp_weather_step(&race->weather);
     if(active==GpEventSafetyCar){
         uint32_t lead=race->drivers[race->ranking[0]].time_ms;
         for(unsigned i=1;i<gp_running_count(race);i++){
@@ -333,5 +401,5 @@ void gp_advance_lap(GpRace* race) {
     if(active!=GpEventNone){
         if(race->event_remaining)race->event_remaining--;
         if(!race->event_remaining)gp_set_event(race,GpEventNone,0);
-    }else incidents(race);
+    }else incidents(race,paces);
 }

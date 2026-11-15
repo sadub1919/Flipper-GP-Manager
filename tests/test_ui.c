@@ -82,7 +82,7 @@ int main(void){
         }
         a.screen=ScreenResults;render(&a);
     }
-    for(uint8_t help_page=0;help_page<16;++help_page){a.screen=ScreenHelp;a.help_page=help_page;render(&a);}
+    for(uint8_t help_page=0;help_page<17;++help_page){a.screen=ScreenHelp;a.help_page=help_page;render(&a);}
     a.screen=ScreenMap;event(&a,InputKeyLeft,InputTypeShort);assert(a.screen==ScreenStrategy);render(&a);
     event(&a,InputKeyRight,InputTypeShort);assert(a.screen==ScreenMap);render(&a);
     event(&a,InputKeyOk,InputTypeShort);assert(a.clock.paused);
@@ -270,5 +270,19 @@ int main(void){
         a.screen=ScreenStrategy;event(&a,InputKeyOk,InputTypeShort);assert(!a.race.pit_queued[0]);
         a.screen=ScreenMap;event(&a,InputKeyOk,InputTypeLong);assert(a.race.player==1);
     }
+    a=(GpApp){0};gp_race_start(&a.race,0,0,0,123);a.screen=ScreenMap;
+    event(&a,InputKeyDown,InputTypeLong);assert(a.screen==ScreenEngineer&&a.engineer_battle);
+    uint8_t lap=a.race.lap;advance_time(&a,a.last_tick+GP_LAP_MS*10);assert(a.race.lap==lap);
+    event(&a,InputKeyRight,InputTypeShort);assert(!a.engineer_battle);render(&a);
+    event(&a,InputKeyLeft,InputTypeShort);assert(a.engineer_battle);
+    event(&a,InputKeyOk,InputTypeLong);assert(a.race.active_slot==1&&a.screen==ScreenEngineer);
+    for(unsigned slot=0;slot<2;slot++)for(unsigned result=GpBattleNone;result<=GpBattleMistake;result++){
+        gp_select_driver(&a.race,slot);a.race.battle[slot]=(GpBattleReport){result,4,78};render(&a);
+    }
+    for(unsigned i=0;i<GP_DRIVER_COUNT;i++){a.race.ranking[i]=i;a.race.drivers[i].time_ms=i*1000000;}
+    render(&a);gp_select_driver(&a.race,0);render(&a);
+    a.race.lap=1;for(unsigned i=2;i<GP_DRIVER_COUNT;i++)assert(gp_retire_driver(&a.race,i,GpDriverFailure));
+    gp_select_driver(&a.race,1);render(&a); // no following active rival
+    event(&a,InputKeyBack,InputTypeShort);assert(a.screen==ScreenMap);
     printf("PASS: %d UI frames, %d text labels, zero overlaps/offscreen text; left navigation, qualification flow\n",frames,checked_labels);
 }

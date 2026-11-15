@@ -4,7 +4,7 @@
 #include "../gp_save.h"
 #include "../tyre_model.h"
 static GpRace fixture(void){
-    GpRace r;gp_race_start(&r,0,0,0,123);r.incident_rng=0;r.weather=(GpWeather){0};
+    GpRace r;gp_race_start(&r,0,0,0,123);r.incident_rng=0;r.battle_rng=0;r.weather=(GpWeather){0};
     for(unsigned i=0;i<GP_DRIVER_COUNT;i++){r.drivers[i].tyre=GpTyreMedium;r.drivers[i].temperature=90;}
     gp_advance_lap(&r);return r;
 }
@@ -57,7 +57,7 @@ int main(void){
     for(unsigned i=0;i<sizeof(offsets)/sizeof(offsets[0]);i++){
         memcpy(bad,bytes,sizeof(bad));bad[offsets[i]]=255;checksum(bad);assert(gp_save_decode(bad,sizeof(bad),&b)==GpSaveCorrupt);
     }
-    bytes[4]=4;memset(bytes+572,0,52);checksum(bytes);assert(gp_save_decode(bytes,sizeof(bytes),&b)==GpSaveOk);
+    bytes[4]=4;memset(bytes+572,0,62);checksum(bytes);assert(gp_save_decode(bytes,sizeof(bytes),&b)==GpSaveOk);
     assert(!b.race.incident_rng&&b.race.incident_driver==GP_DRIVER_COUNT&&gp_running_count(&b.race)==GP_DRIVER_COUNT);
     unsigned crashes=0,failures=0,reds=0,sc=0,vsc=0;
     for(unsigned seed=1;seed<=3000;seed++){
