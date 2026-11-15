@@ -62,7 +62,7 @@ int main(void){
         gp_qualify(&a.qualifying,t,56789u+t);
         a.screen=ScreenGrid;
         for(uint8_t top=0;top<=GP_DRIVER_COUNT-3;++top){a.grid_top=top;render(&a);}
-        gp_race_start(&a.race,0,0,t,12345u+t);
+        gp_race_start(&a.race,0,0,t,12345u+t);a.race.incident_rng=0;
         gp_race_apply_grid(&a.race,a.qualifying.grid);
         for(uint8_t step=0;step<GP_TOTAL_LAPS;++step){
             for(uint8_t active=0;active<2;++active){
@@ -82,7 +82,7 @@ int main(void){
         }
         a.screen=ScreenResults;render(&a);
     }
-    for(uint8_t help_page=0;help_page<14;++help_page){a.screen=ScreenHelp;a.help_page=help_page;render(&a);}
+    for(uint8_t help_page=0;help_page<16;++help_page){a.screen=ScreenHelp;a.help_page=help_page;render(&a);}
     a.screen=ScreenMap;event(&a,InputKeyLeft,InputTypeShort);assert(a.screen==ScreenStrategy);render(&a);
     event(&a,InputKeyRight,InputTypeShort);assert(a.screen==ScreenMap);render(&a);
     event(&a,InputKeyOk,InputTypeShort);assert(a.clock.paused);
@@ -182,7 +182,7 @@ int main(void){
     event(&a,InputKeyBack,InputTypeShort);assert(a.screen==ScreenPause);
     gp_test_fs.no_card=false;a.pause_item=1;event(&a,InputKeyOk,InputTypeShort);process_storage(&a);
     assert(a.screen==ScreenMain&&!a.autosave_blocked);
-    a.chosen_track=0;a.full_distance=false;start_race(&a);process_storage(&a);
+    a.chosen_track=0;a.full_distance=false;start_race(&a);a.race.incident_rng=0;process_storage(&a);
     for(int lap=1;lap<=GP_TOTAL_LAPS;lap++){
         advance_time(&a,a.last_tick+GP_LAP_MS);assert(a.save_requested&&a.race.lap==lap);
         process_storage(&a);assert(a.save_status==GpSaveOk);
@@ -195,11 +195,11 @@ int main(void){
     for(int t=0;t<GP_TRACK_COUNT;t++){
         a.chosen_track=t;a.screen=ScreenDistance;
         for(int full=0;full<2;full++){a.full_distance=full;render(&a);}
-        gp_race_start(&a.race,3,1,t,123);a.race.total_laps=gp_track_info(t)->actual_laps;
+        gp_race_start(&a.race,3,1,t,123);a.race.incident_rng=0;a.race.total_laps=gp_track_info(t)->actual_laps;
         a.race.lap=a.race.total_laps-1;a.screen=ScreenMap;render(&a);
         a.race.lap=a.race.total_laps;a.screen=ScreenResults;render(&a);
     }
-    a=(GpApp){0};gp_race_start(&a.race,0,0,0,123);gp_weekend_start(&a.weekend,false,123);
+    a=(GpApp){0};gp_race_start(&a.race,0,0,0,123);a.race.incident_rng=0;gp_weekend_start(&a.weekend,false,123);
     a.screen=ScreenWeekendReplace;render(&a);
     for(int top=0;top<=20;top++){a.screen=ScreenCalendar;a.standings_top=top;render(&a);}
     for(int stage=GpStageFP1;stage<=GpStageDone;stage++){
@@ -213,7 +213,7 @@ int main(void){
             }
         }
     }
-    a=(GpApp){0};gp_race_start(&a.race,0,0,0,123);a.screen=ScreenMap;
+    a=(GpApp){0};gp_race_start(&a.race,0,0,0,123);a.race.incident_rng=0;a.screen=ScreenMap;
     event(&a,InputKeyUp,InputTypeLong);assert(a.screen==ScreenWeather);render(&a);
     uint8_t lap_before=a.race.lap;advance_time(&a,a.last_tick+GP_LAP_MS*2);assert(a.race.lap==lap_before);
     event(&a,InputKeyBack,InputTypeShort);assert(a.screen==ScreenMap);
@@ -227,7 +227,7 @@ int main(void){
     for(unsigned rain=0;rain<3;rain++)for(unsigned wet=0;wet<=100;wet+=25){
         a.screen=ScreenWeather;a.weather_return=ScreenMap;a.race.weather.rain=rain;a.race.weather.forecast=rain;a.race.weather.wetness=wet;render(&a);
     }
-    gp_race_start(&a.race,0,0,0,123);a.screen=ScreenDriver;
+    gp_race_start(&a.race,0,0,0,123);a.race.incident_rng=0;a.screen=ScreenDriver;
     for(unsigned slot=0;slot<2;slot++)for(unsigned tyre=0;tyre<GpTyreCount;tyre++)for(unsigned temp=20;temp<=140;temp+=10){
         gp_select_driver(&a.race,slot);a.race.drivers[a.race.player].tyre=tyre;a.race.drivers[a.race.player].temperature=temp;render(&a);
     }
@@ -236,5 +236,39 @@ int main(void){
     gp_qualifying_start(&a.qualifying,0,0,123);gp_qualifying_run(&a.qualifying);a.screen=ScreenQualResults;a.grid_top=0;
     for(unsigned i=0;i<22;i++){a.qualifying.lap_ms[i]=1000000;a.qualifying.temperature[i]=140;}
     render(&a); // largest accepted time and temperature still fit together
+    /* Red flag is a persisted stop, not a running lap. Test both drivers. */
+    memset(&gp_test_fs,0,sizeof(gp_test_fs));a=(GpApp){0};a.storage=gp_storage_open();
+    gp_race_start(&a.race,0,0,0,123);a.race.incident_rng=0;gp_advance_lap(&a.race);
+    assert(gp_retire_driver(&a.race,2,GpDriverAccident));assert(gp_set_event(&a.race,GpEventRed,0));
+    a.screen=ScreenMap;advance_time(&a,a.last_tick+GP_LAP_MS);assert(a.screen==ScreenRedFlag);render(&a);
+    uint8_t stopped_lap=a.race.lap;advance_time(&a,a.last_tick+10*GP_LAP_MS);assert(a.race.lap==stopped_lap);
+    for(unsigned slot=0;slot<2;slot++){
+        gp_select_driver(&a.race,slot);
+        for(unsigned tyre=0;tyre<GpTyreCount;tyre++){a.race.pit_tyres[slot]=tyre;render(&a);}
+    }
+    a.race.pit_tyres[0]=GpTyreSoft;a.race.pit_tyres[1]=GpTyreHard;
+    event(&a,InputKeyDown,InputTypeShort);assert(a.race.pit_tyres[1]==GpTyreIntermediate);
+    event(&a,InputKeyBack,InputTypeShort);assert(a.screen==ScreenPause);
+    event(&a,InputKeyBack,InputTypeShort);assert(a.screen==ScreenRedFlag);
+    a.save_requested=true;process_storage(&a);assert(a.save_status==GpSaveOk);
+    a.screen=ScreenMain;a.load_requested=true;process_storage(&a);assert(a.screen==ScreenRedFlag&&a.clock.paused);
+    event(&a,InputKeyOk,InputTypeShort);assert(a.screen==ScreenMap&&!a.clock.paused&&a.race.event==GpEventSafetyCar);
+    assert(a.race.drivers[0].tyre==GpTyreSoft&&a.race.drivers[1].tyre==GpTyreIntermediate&&a.race.lap==stopped_lap);
+    for(unsigned cause=GpDriverAccident;cause<=GpDriverFailure;cause++){
+        gp_race_start(&a.race,0,0,0,123);a.race.incident_rng=0;gp_advance_lap(&a.race);
+        assert(gp_retire_driver(&a.race,0,cause));
+        for(unsigned flag=GpEventNone;flag<=GpEventSafetyCar;flag++)for(unsigned duration=1;duration<=4;duration++){
+            assert(gp_set_event(&a.race,flag,duration));a.screen=ScreenEngineer;render(&a);
+            a.screen=ScreenMap;render(&a);
+        }
+        a.save_requested=true;process_storage(&a);assert(a.save_status==GpSaveOk);
+        a.screen=ScreenMain;a.load_requested=true;process_storage(&a);assert(a.screen==ScreenEngineer);render(&a);
+        event(&a,InputKeyOk,InputTypeShort);assert(a.screen==ScreenMap&&!a.race.incident_pending);
+        event(&a,InputKeyDown,InputTypeLong);assert(a.screen==ScreenEngineer);
+        event(&a,InputKeyBack,InputTypeShort);assert(a.screen==ScreenMap);
+        for(int screen=ScreenMap;screen<=ScreenStrategy;screen++){a.screen=screen;render(&a);}
+        a.screen=ScreenStrategy;event(&a,InputKeyOk,InputTypeShort);assert(!a.race.pit_queued[0]);
+        a.screen=ScreenMap;event(&a,InputKeyOk,InputTypeLong);assert(a.race.player==1);
+    }
     printf("PASS: %d UI frames, %d text labels, zero overlaps/offscreen text; left navigation, qualification flow\n",frames,checked_labels);
 }

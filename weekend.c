@@ -64,8 +64,8 @@ bool gp_weekend_valid(const GpWeekend* w,const GpRace* r){
     }
     if(w->stage==GpStageRace||w->stage==GpStageSprint){
         if(!w->qualifying.complete||w->qualifying.team!=r->team||w->qualifying.track!=r->track)return false;
-        if(w->phase==GpWeekendResult&&r->lap!=r->total_laps)return false;
-        if(w->phase==GpWeekendRacing&&r->lap>=r->total_laps)return false;
+        if(w->phase==GpWeekendResult&&!gp_race_finished(r))return false;
+        if(w->phase==GpWeekendRacing&&gp_race_finished(r))return false;
     }
     /* A retained grid is needed between qualifying and its race. */
     const GpQualifying* q=&w->qualifying;

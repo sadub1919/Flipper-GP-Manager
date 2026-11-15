@@ -60,7 +60,7 @@ int main(int argc,char** argv){
     a.screen=ScreenStandings;a.standings_top=0;save(&a,"start",0);
     a.race.lap=12;for(int i=0;i<GP_DRIVER_COUNT;i++){a.race.ranking[i]=i;a.race.drivers[i].time_ms=i*1000000u;}
     for(int screen=0;screen<2;screen++){a.screen=screen?ScreenResults:ScreenStandings;for(int top=0;top<=19;top++){a.standings_top=top;save(&a,screen?"results":"large_gap",top);}}
-    a.screen=ScreenHelp;for(int i=0;i<14;i++){a.help_page=i;save(&a,"help",i);}
+    a.screen=ScreenHelp;for(int i=0;i<16;i++){a.help_page=i;save(&a,"help",i);}
     a.screen=ScreenPause;for(int i=0;i<3;i++){a.pause_item=i;save(&a,"pause",i);}
     for(int t=0;t<GP_TRACK_COUNT;t++){
         a.chosen_track=t;a.screen=ScreenDistance;
@@ -122,5 +122,21 @@ int main(int argc,char** argv){
         a.race.drivers[0].time_ms=a.race.drivers[1].time_ms+gp_pit_loss_ms(&a.race)-500;
         save(&a,"pit_estimate",event*2+1);
     }
+    a=(GpApp){0};gp_race_start(&a.race,0,0,0,123);gp_advance_lap(&a.race);
+    gp_retire_driver(&a.race,2,GpDriverAccident);gp_set_event(&a.race,GpEventRed,0);
+    a.screen=ScreenRedFlag;
+    for(unsigned slot=0;slot<2;slot++)for(unsigned tyre=0;tyre<GpTyreCount;tyre++){
+        gp_select_driver(&a.race,slot);a.race.pit_tyres[slot]=tyre;save(&a,"red",slot*5+tyre);
+    }
+    for(unsigned flag=GpEventVsc;flag<=GpEventSafetyCar;flag++)for(unsigned duration=1;duration<=4;duration++){
+        gp_set_event(&a.race,flag,duration);a.screen=ScreenEngineer;save(&a,"engineer",flag*4+duration-1);
+        a.screen=ScreenMap;save(&a,"neutral",flag*4+duration-1);
+    }
+    gp_set_event(&a.race,GpEventNone,0);a.screen=ScreenEngineer;save(&a,"engineer",0);
+    gp_select_driver(&a.race,0);gp_retire_driver(&a.race,0,GpDriverFailure);
+    for(unsigned screen=ScreenMap;screen<=ScreenStrategy;screen++){
+        a.screen=screen;a.standings_top=19;save(&a,"dnf",screen-ScreenMap);
+    }
+    a.screen=ScreenRedFlag;save(&a,"red_dnf",0);
     printf("PASS: %u bitmap snapshots from real UI, fonts, badges and track data\n",frames);
 }

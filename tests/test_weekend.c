@@ -46,6 +46,7 @@ int main(void){
                 if(a.save_requested)checkpoint(&a);
                 press(&a,InputKeyOk);break;
             case ScreenQualResults:case ScreenGrid:press(&a,InputKeyOk);break;
+            case ScreenEngineer:case ScreenRedFlag:press(&a,InputKeyOk);break;
             case ScreenMap:
                 a.clock.paused=false;advance_time(&a,a.last_tick+GP_LAP_MS);
                 if(a.weekend.stage==GpStageSprint)assert(a.race.total_laps==gp_sprint_laps(a.race.track,full));
