@@ -12,7 +12,7 @@
 
 typedef enum {GpTyreSoft=0,GpTyreMedium=1,GpTyreHard=2,GpTyreIntermediate=3,GpTyreWet=4,GpTyreCount=5} GpTyre;
 typedef enum {GpPaceConserve=0,GpPaceNormal=1,GpPaceAttack=2} GpPace;
-typedef enum {GpEventNone=0,GpEventYellow=1,GpEventVsc=2,GpEventSafetyCar=3} GpEvent;
+typedef enum {GpEventNone=0,GpEventYellow=1,GpEventVsc=2,GpEventSafetyCar=3,GpEventRed=4} GpEvent;
 
 typedef struct {
     const char* name;
@@ -37,7 +37,10 @@ typedef struct {
     uint8_t difficulty;
 } GpTrackInfo;
 
+typedef enum {GpDriverRunning=0,GpDriverAccident=1,GpDriverFailure=2} GpDriverStatus;
 typedef struct {
+    GpDriverStatus status;
+    uint8_t retired_lap;
     uint8_t driver_index;
     uint8_t wear; /* 100 -> 0 */
     uint8_t temperature; /* Celsius, tyre_model.h defines bounds */
@@ -62,6 +65,11 @@ typedef struct {
     GpTyre pit_tyres[2];
     GpEvent event;
     uint8_t event_serial;
+    uint8_t event_remaining;
+    uint8_t incident_driver; /* GP_DRIVER_COUNT means none */
+    uint8_t incident_serial;
+    bool incident_pending;
+    uint32_t incident_rng; /* independent stream; zero disables spontaneous incidents */
     uint32_t rng_state;
     GpWeather weather;
 } GpRace;
@@ -79,6 +87,13 @@ void gp_advance_lap(GpRace* race);
 uint8_t gp_position(const GpRace* race,uint8_t driver_index);
 uint32_t gp_gap_ms(const GpRace* race,uint8_t driver_index);
 uint8_t gp_points_for_position(uint8_t position);
+uint8_t gp_running_count(const GpRace*);
+bool gp_race_finished(const GpRace*);
+bool gp_driver_precedes(const GpDriver*,const GpDriver*);
+bool gp_retire_driver(GpRace*,uint8_t,GpDriverStatus);
+bool gp_set_event(GpRace*,GpEvent,uint8_t laps);
+bool gp_restart_race(GpRace*);
+const char* gp_retirement_name(GpDriverStatus);
 uint32_t gp_pit_loss_ms(const GpRace* race);
 uint8_t gp_pit_rejoin_position(const GpRace* race,uint8_t driver);
 bool gp_pit_traffic(const GpRace* race,uint8_t driver);

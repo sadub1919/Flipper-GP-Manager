@@ -8,7 +8,7 @@ static void checksum(uint8_t* b){
     crc=~crc;for(int i=0;i<4;i++)b[GP_SAVE_BYTES-4+i]=(uint8_t)(crc>>(8*i));
 }
 static GpRace scenario(unsigned seed,unsigned wear,GpTyre tyre){
-    GpRace r;gp_race_start(&r,0,1,0,seed);r.weather=(GpWeather){0};r.lap=3;
+    GpRace r;gp_race_start(&r,0,1,0,seed);r.incident_rng=0;r.weather=(GpWeather){0};r.lap=3;
     for(unsigned i=0;i<22;i++){
         r.ranking[i]=i;r.drivers[i].time_ms=i<2?i*800:50000+i*10000;
         r.drivers[i].wear=i<2?wear:100;r.drivers[i].tyre=tyre;r.drivers[i].temperature=gp_tyre_optimal(tyre);
@@ -65,7 +65,7 @@ int main(void){
     assert(traffic.drivers[1].last_lap_ms==clear.drivers[1].last_lap_ms+600+gp_track_info(0)->difficulty*300);
     /* Preserve every driver's temperature and the next simulation step. */
     for(unsigned tyre=0;tyre<5;tyre++)for(unsigned temperature=20;temperature<=140;temperature+=10){
-        GpSavedGame a={0},b={0};gp_race_start(&a.race,0,0,0,123);
+        GpSavedGame a={0},b={0};gp_race_start(&a.race,0,0,0,123);a.race.incident_rng=0;
         for(unsigned i=0;i<22;i++){a.race.drivers[i].tyre=tyre;a.race.drivers[i].temperature=temperature;}
         uint8_t bytes[GP_SAVE_BYTES],other[GP_SAVE_BYTES];assert(gp_save_encode(&a,bytes));assert(gp_save_decode(bytes,sizeof(bytes),&b)==GpSaveOk);
         gp_advance_lap(&a.race);gp_advance_lap(&b.race);assert(gp_save_encode(&a,bytes)&&gp_save_encode(&b,other));assert(!memcmp(bytes,other,sizeof(bytes)));
@@ -74,10 +74,10 @@ int main(void){
             other[offset]=141;checksum(other);assert(gp_save_decode(other,sizeof(other),&b)==GpSaveCorrupt);
         }
         // Version 3 migration: existing race starts with tyres in their working window.
-        bytes[4]=3;memset(bytes+528,0,44);checksum(bytes);assert(gp_save_decode(bytes,sizeof(bytes),&b)==GpSaveOk);
+        bytes[4]=3;memset(bytes+528,0,96);checksum(bytes);assert(gp_save_decode(bytes,sizeof(bytes),&b)==GpSaveOk);
         for(unsigned i=0;i<22;i++)assert(b.race.drivers[i].temperature==gp_tyre_optimal(b.race.drivers[i].tyre));
     }
-    GpSavedGame a={0},b={0};gp_race_start(&a.race,0,0,0,123);gp_weekend_start(&a.weekend,false,1);
+    GpSavedGame a={0},b={0};gp_race_start(&a.race,0,0,0,123);a.race.incident_rng=0;gp_weekend_start(&a.weekend,false,1);
     a.weekend.stage=GpStageFP1;a.weekend.phase=GpWeekendQualResult;
     GpQualifying* q=&a.weekend.qualifying;gp_qualifying_start(q,0,0,123);q->weather=(GpWeather){0};q->tyre[0]=GpTyreSoft;
     gp_qualifying_run(q);uint32_t best=q->lap_ms[0];uint8_t best_temp=q->temperature[0];q->tyre[0]=GpTyreHard;

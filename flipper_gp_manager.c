@@ -24,7 +24,7 @@
 typedef enum {
     ScreenTeam, ScreenTrack, ScreenQualifying, ScreenGrid,
     ScreenMap, ScreenStandings, ScreenDriver, ScreenStrategy,
-    ScreenResults, ScreenHelp, ScreenPause, ScreenMain, ScreenDistance, ScreenReplace, ScreenNotice, ScreenAbandon, ScreenQualResults, ScreenQualExit, ScreenWeekend, ScreenWeekendReplace, ScreenCalendar, ScreenWeather,
+    ScreenResults, ScreenHelp, ScreenPause, ScreenMain, ScreenDistance, ScreenReplace, ScreenNotice, ScreenAbandon, ScreenQualResults, ScreenQualExit, ScreenWeekend, ScreenWeekendReplace, ScreenCalendar, ScreenWeather, ScreenRedFlag, ScreenEngineer,
 } GpScreen;
 
 typedef struct {
@@ -40,6 +40,7 @@ typedef struct {
     GpScreen notice_return;
     GpScreen qual_return;
     GpScreen weather_return;
+    GpScreen engineer_return;
     GpSaveStatus save_status;
     GpSaveIo storage;
     bool full_distance,save_requested,save_exit,load_requested,autosave_blocked;
@@ -79,7 +80,7 @@ static const char* pace_ru(GpPace p){
     return p==GpPaceAttack?"АТАКА":(p==GpPaceConserve?"ЭКО":"НОРМА");
 }
 static const char* event_short(GpEvent e){
-    return e==GpEventSafetyCar?"SC":(e==GpEventVsc?"VSC":(e==GpEventYellow?"YEL":"GRN"));
+    return e==GpEventRed?"RED":e==GpEventSafetyCar?"SC":(e==GpEventVsc?"VSC":(e==GpEventYellow?"YEL":"GRN"));
 }
 /* The generated coordinates encode an 80:39 box. Undo that normalization
    before rotation; a single scale preserves the actual circuit proportions. */
@@ -137,9 +138,10 @@ static bool rectangles_overlap(int x,int y,int w,int h,int bx,int by,int bw,int 
     return x<bx+bw&&x+w>bx&&y<by+bh&&y+h>by;
 }
 static unsigned map_markers(const GpTrackShape* t,const GpRace* race,uint8_t phase,GpMapMarker m[3]){
+    if(race->drivers[race->player].status!=GpDriverRunning)return 0;
     unsigned count=1;m[0].id=race->player;uint8_t pos=gp_position(race,race->player);
     if(pos>1)m[count++].id=race->ranking[pos-2];
-    if(pos<GP_DRIVER_COUNT)m[count++].id=race->ranking[pos];
+    if(pos<gp_running_count(race))m[count++].id=race->ranking[pos];
     int32_t lap=race->drivers[race->player].last_lap_ms;
     if(lap<1000)lap=gp_track_info(race->track)->length_m*14+9500;
     for(unsigned i=0;i<count;i++){
@@ -292,16 +294,47 @@ static void draw_grid(Canvas* c,const GpApp* a){
     }
     bottom(c,a->weekend.active?"^V СПИСОК OK ДАЛЕЕ":"^V СПИСОК OK ГОНКА");
 }
+static void draw_retired(Canvas* c,const GpRace* r){
+    const GpDriver* d=&r->drivers[r->player];char b[40];
+    snprintf(b,sizeof(b),"%s DNF: %s",gp_driver_info(r->player)->code,gp_retirement_name(d->status));txt(c,2,15,b);
+    snprintf(b,sizeof(b),"СХОД НА КРУГЕ %u",d->retired_lap);txt(c,2,28,b);
+    txt(c,2,41,"ДЕРЖИ OK: 2-Й ПИЛОТ");
+}
+static void draw_engineer(Canvas* c,const GpApp* a){
+    const GpRace* r=&a->race;char b[48];top(c,"ГОНОЧНЫЙ ИНЖЕНЕР");
+    if(r->event_remaining==1)snprintf(b,sizeof(b),"ПОСЛЕДНИЙ КРУГ %s",event_short(r->event));
+    else snprintf(b,sizeof(b),"%s: ЕЩЁ %u КР",event_short(r->event),r->event_remaining);
+    if(r->event==GpEventNone)snprintf(b,sizeof(b),"ТРАССА ОТКРЫТА");
+    txt(c,2,15,b);
+    if(r->incident_driver<GP_DRIVER_COUNT){
+        const GpDriver* d=&r->drivers[r->incident_driver];
+        snprintf(b,sizeof(b),"%s: %s",gp_driver_info(r->incident_driver)->code,gp_retirement_name(d->status));txt(c,2,28,b);
+        snprintf(b,sizeof(b),"СХОД НА КРУГЕ %u",d->retired_lap);txt(c,2,41,b);
+    }else txt(c,2,28,"ПРОИСШЕСТВИЙ НЕТ");
+    bottom(c,"OK/BACK: ПРОДОЛЖИТЬ");
+}
+static void draw_red(Canvas* c,const GpApp* a){
+    const GpRace* r=&a->race;char b[48];top(c,"КРАСНЫЙ ФЛАГ");
+    if(r->incident_driver<GP_DRIVER_COUNT)snprintf(b,sizeof(b),"КР%u %s: %s",r->lap,gp_driver_info(r->incident_driver)->code,gp_retirement_name(r->drivers[r->incident_driver].status));
+    else snprintf(b,sizeof(b),"КРУГ %u: ОСТАНОВКА",r->lap);
+    txt(c,2,15,b);
+    if(r->drivers[r->player].status==GpDriverRunning)snprintf(b,sizeof(b),"%s ШИНЫ: %c",gp_driver_info(r->player)->code,tyre_char(r->pit_tyres[r->active_slot]));
+    else snprintf(b,sizeof(b),"%s DNF",gp_driver_info(r->player)->code);
+    txt(c,2,28,b);txt(c,2,41,"OK: РЕСТАРТ ЗА SC");bottom(c,"<> ПИЛОТ ^V ШИНЫ");
+}
 static void draw_map(Canvas* c,const GpApp* a){
     const GpRace* r=&a->race;char b[32];
     snprintf(b,sizeof(b),"КР%02u/%02u",r->lap>=r->total_laps?r->total_laps:r->lap+1,r->total_laps);top(c,b);
+    if(r->drivers[r->player].status!=GpDriverRunning){draw_retired(c,r);bottom(c,"<> ЭКРАНЫ OK ПАУЗА");return;}
     uint8_t phase=gp_clock_phase(&a->clock,furi_ms_to_ticks(GP_GAME_LAP_MS));
     draw_circuit(c,r->track,5,17,117,30,r,phase);
-    snprintf(b,sizeof(b),"P%02u %s ВЛ%u%% ^ПОГ",gp_position(r,r->player),event_short(r->event),r->weather.wetness);bottom(c,b);
+    if(r->event_remaining)snprintf(b,sizeof(b),"P%02u %s%u ВЛ%u%%",gp_position(r,r->player),event_short(r->event),r->event_remaining,r->weather.wetness);
+    else snprintf(b,sizeof(b),"P%02u %s ВЛ%u%% ^ПОГ",gp_position(r,r->player),event_short(r->event),r->weather.wetness);
+    bottom(c,b);
 }
 static void draw_table(Canvas* c,const GpApp* a,bool result){
     const GpRace* r=&a->race;char b[40];
-    if(result){snprintf(b,sizeof(b),"%s %u КРУГОВ",a->weekend.active&&a->weekend.stage==GpStageSprint?"СПРИНТ":"ФИНИШ",r->total_laps);top(c,b);}
+    if(result){snprintf(b,sizeof(b),"%s %u КРУГОВ",a->weekend.active&&a->weekend.stage==GpStageSprint?"СПРИНТ":"ФИНИШ",r->lap);top(c,b);}
     else top(c,"ПОЗИЦИИ");
     for(uint8_t row=0;row<3;++row){
         uint8_t pos=(uint8_t)(a->standings_top+row);
@@ -309,7 +342,9 @@ static void draw_table(Canvas* c,const GpApp* a,bool result){
         uint8_t id=r->ranking[pos];
         if(id/2==r->team)selection_frame(c,1,13+row*12,126,12);
         uint32_t gap=gp_gap_ms(r,id);
-        if(pos==0)
+        if(r->drivers[id].status!=GpDriverRunning)
+            snprintf(b,sizeof(b),"%02u %s DNF %s",pos+1,gp_driver_info(id)->code,gp_retirement_name(r->drivers[id].status));
+        else if(pos==0)
             snprintf(b,sizeof(b),"%02u %-3s %-3s LEAD",pos+1,gp_driver_info(id)->code,gp_team_info(id/2)->code);
         else if(r->lap==0)
             snprintf(b,sizeof(b),"%02u %-3s %-3s GRID",pos+1,gp_driver_info(id)->code,gp_team_info(id/2)->code);
@@ -324,6 +359,7 @@ static void draw_driver(Canvas* c,const GpApp* a){
     const GpRace* r=&a->race;uint8_t slot=r->active_slot,index=r->player;
     const GpDriver* d=&r->drivers[index];char b[40];
     top(c,"ПИЛОТ");
+    if(d->status!=GpDriverRunning){draw_retired(c,r);bottom(c,"<> ЭКРАНЫ OK ПИЛОТ");return;}
     snprintf(b,sizeof(b),"%s P%02u ПИТ %u",gp_driver_info(index)->code,gp_position(r,index),d->pits);latin(c,4,22,b);
     snprintf(b,sizeof(b),"%s %c %u%%",pace_ru(r->pace[slot]),tyre_char(d->tyre),d->wear);txt(c,3,27,b);
     int state=gp_tyre_temperature_state(d->tyre,d->temperature);
@@ -333,13 +369,14 @@ static void draw_driver(Canvas* c,const GpApp* a){
 static void draw_strategy(Canvas* c,const GpApp* a){
     const GpRace* r=&a->race;uint8_t slot=r->active_slot;char b[38];
     top(c,"СТРАТЕГИЯ");
+    if(r->drivers[r->player].status!=GpDriverRunning){draw_retired(c,r);bottom(c,"<> ЭКРАНЫ BACK МЕНЮ");return;}
     snprintf(b,sizeof(b),"ПИТ ~P%02u %s",gp_pit_rejoin_position(r,r->player),gp_pit_traffic(r,r->player)?"ТРАФИК":"ЧИСТО");latin(c,4,22,b);
     snprintf(b,sizeof(b),"ШИНЫ:%c ВЛ:%u%%",tyre_char(r->pit_tyres[slot]),r->weather.wetness);txt(c,3,27,b);
     txt(c,3,40,r->pit_queued[slot]?"ПИТ: ЗАПЛАНИРОВАН":"ПИТ: НЕ НАЗНАЧЕН");
     bottom(c,"^V ШИНЫ OK ПИТ");
 }
 static void draw_help(Canvas* c,const GpApp* a){
-    char b[32];snprintf(b,sizeof(b),"ПОМОЩЬ %u/14",a->help_page+1);top(c,b);
+    char b[32];snprintf(b,sizeof(b),"ПОМОЩЬ %u/16",a->help_page+1);top(c,b);
     if(a->help_page==0){
         txt(c,2,15,"<>: ЭКРАНЫ");
         txt(c,2,28,"BACK: МЕНЮ ПАУЗЫ");
@@ -383,6 +420,11 @@ static void draw_help(Canvas* c,const GpApp* a){
     }else if(a->help_page==13){
         txt(c,2,15,"РАНЬШЕ: СВЕЖИЕ ШИНЫ");txt(c,2,28,"ПОЗЖЕ: ПРОГРЕТЫЕ ШИНЫ");txt(c,2,41,"~P: МЕСТО ПОСЛЕ ПИТА");
     }
+    if(a->help_page==14){
+        txt(c,2,15,"ДЕРЖИ V: ИНЖЕНЕР");txt(c,2,28,"SC1: ПОСЛЕДНИЙ КРУГ");txt(c,2,41,"DNF: ПИЛОТ ВЫБЫЛ");
+    }else if(a->help_page==15){
+        txt(c,2,15,"КРАСНЫЙ: ГОНКА СТОИТ");txt(c,2,28,"^V ШИНЫ <> ПИЛОТ");txt(c,2,41,"OK РЕСТАРТ BACK МЕНЮ");
+    }
     bottom(c,"<> СТР. OK ЗАКРЫТЬ");
 }
 static void draw_cb(Canvas* c,void* ctx){
@@ -397,7 +439,7 @@ static void draw_cb(Canvas* c,void* ctx){
     case ScreenMain:{
         for(unsigned y=0;y<10;y++)for(unsigned x=0;x<34;x++)
             if(gp_game_logo[y]&(1ULL<<x))canvas_draw_dot(c,2+x,y);
-        txt(c,42,0,"GP 0.7.1");canvas_draw_line(c,0,11,127,11);
+        txt(c,42,0,"GP 0.7.2");canvas_draw_line(c,0,11,127,11);
         static const char* const items[]={"ПРОДОЛЖИТЬ","УИК-ЭНДЫ","НОВАЯ ГОНКА","УПРАВЛЕНИЕ","ВЫХОД"};
         uint8_t first=a->menu_item>2?a->menu_item-2:0;
         for(uint8_t row=0;row<3;row++)txt(c,8,15+row*13,items[first+row]);
@@ -409,6 +451,8 @@ static void draw_cb(Canvas* c,void* ctx){
         snprintf(b,sizeof(b),"ПОЛНАЯ: %u КР",gp_track_info(a->chosen_track)->actual_laps);txt(c,8,33,b);
         selection_frame(c,2,a->full_distance?31:14,124,14);
         bottom(c,"^V ВЫБОР OK ДАЛЕЕ");break;}
+    case ScreenRedFlag:draw_red(c,a);break;
+    case ScreenEngineer:draw_engineer(c,a);break;
     case ScreenWeather:draw_weather(c,a);break;
     case ScreenWeekend:draw_weekend(c,a);break;
     case ScreenCalendar:draw_calendar(c,a);break;
@@ -515,6 +559,30 @@ static void show_help(GpApp* a){
     a->help_return=a->screen;a->help_page=0;a->screen=ScreenHelp;
 }
 static void handle_input(GpApp* a,const InputEvent* e){
+    if(a->screen==ScreenEngineer){
+        if(e->type==InputTypeShort&&(e->key==InputKeyOk||e->key==InputKeyBack)){
+            a->race.incident_pending=false;a->screen=a->engineer_return;
+            if(!a->autosave_blocked)a->save_requested=true;
+        }
+        return;
+    }
+    if(a->screen==ScreenRedFlag){
+        if(e->type!=InputTypeShort)return;
+        if(e->key==InputKeyLeft||e->key==InputKeyRight)gp_select_driver(&a->race,1-a->race.active_slot);
+        else if(e->key==InputKeyBack){a->help_return=ScreenRedFlag;a->pause_item=0;a->screen=ScreenPause;return;}
+        else if(e->key==InputKeyOk){
+            if(gp_restart_race(&a->race)){a->clock.progress_ticks=0;a->clock.paused=false;a->last_tick=furi_get_tick();a->screen=ScreenMap;}
+        }else if(a->race.drivers[a->race.player].status==GpDriverRunning){
+            uint8_t slot=a->race.active_slot;
+            if(e->key==InputKeyUp)a->race.pit_tyres[slot]=(GpTyre)((a->race.pit_tyres[slot]+GpTyreCount-1)%GpTyreCount);
+            if(e->key==InputKeyDown)a->race.pit_tyres[slot]=(GpTyre)((a->race.pit_tyres[slot]+1)%GpTyreCount);
+        }
+        if(!a->autosave_blocked)a->save_requested=true;
+        return;
+    }
+    if(e->type==InputTypeLong&&e->key==InputKeyDown&&race_screen(a->screen)){
+        a->engineer_return=a->screen;a->screen=ScreenEngineer;return;
+    }
     if(a->screen==ScreenWeather){
         if(e->type==InputTypeShort&&(e->key==InputKeyBack||e->key==InputKeyOk))a->screen=a->weather_return;
         return;
@@ -619,8 +687,8 @@ static void handle_input(GpApp* a,const InputEvent* e){
     }
     if(a->screen==ScreenHelp){
         if(e->type!=InputTypeShort)return;
-        if(e->key==InputKeyRight)a->help_page=(a->help_page+1)%14;
-        else if(e->key==InputKeyLeft)a->help_page=(a->help_page+13)%14;
+        if(e->key==InputKeyRight)a->help_page=(a->help_page+1)%16;
+        else if(e->key==InputKeyLeft)a->help_page=(a->help_page+15)%16;
         else if(e->key==InputKeyOk||e->key==InputKeyBack)a->screen=a->help_return;
         return;
     }
@@ -713,9 +781,10 @@ static void handle_input(GpApp* a,const InputEvent* e){
         else if(a->screen==ScreenDriver){
             uint8_t s=a->race.active_slot;
             if(e->key==InputKeyOk&&e->type==InputTypeShort)gp_select_driver(&a->race,1-s);
-            else if(e->key==InputKeyUp&&a->race.pace[s]<GpPaceAttack)++a->race.pace[s];
-            else if(e->key==InputKeyDown&&a->race.pace[s]>GpPaceConserve)--a->race.pace[s];
+            else if(e->key==InputKeyUp&&a->race.drivers[a->race.player].status==GpDriverRunning&&a->race.pace[s]<GpPaceAttack)++a->race.pace[s];
+            else if(e->key==InputKeyDown&&a->race.drivers[a->race.player].status==GpDriverRunning&&a->race.pace[s]>GpPaceConserve)--a->race.pace[s];
         }else if(a->screen==ScreenStrategy){
+            if(a->race.drivers[a->race.player].status!=GpDriverRunning)return;
             uint8_t s=a->race.active_slot;
             if(e->key==InputKeyOk&&e->type==InputTypeShort)
                 a->race.pit_queued[s]=!a->race.pit_queued[s];
@@ -785,8 +854,12 @@ static void process_storage(GpApp* a){
         a->clock.progress_ticks=(uint32_t)((uint64_t)game->clock.progress_ticks*furi_ms_to_ticks(GP_LAP_MS)/GP_LAP_MS);
         a->clock.paused=true;a->chosen_team=a->race.team;a->chosen_track=a->race.track;
         a->preferred_driver=a->race.active_slot;a->full_distance=a->race.total_laps!=GP_TOTAL_LAPS;
-        a->screen=a->weekend.active?weekend_screen(&a->weekend):(a->race.lap>=a->race.total_laps?ScreenResults:ScreenMap);
+        a->screen=a->weekend.active?weekend_screen(&a->weekend):(gp_race_finished(&a->race)?ScreenResults:ScreenMap);
         if(a->weekend.active)a->full_distance=a->weekend.full_distance;
+        if(a->screen==ScreenMap){
+            if(a->race.event==GpEventRed)a->screen=ScreenRedFlag;
+            else if(a->race.incident_pending){a->engineer_return=ScreenMap;a->screen=ScreenEngineer;}
+        }
         a->grid_top=0;
         a->standings_top=0;a->autosave_blocked=false;
     }else if(!loading&&status==GpSaveOk){
@@ -805,16 +878,20 @@ static void process_storage(GpApp* a){
 static void advance_time(GpApp* a,uint32_t now){
     uint32_t dt=now-a->last_tick;a->last_tick=now;
         if(race_screen(a->screen)){
+            if(a->race.event==GpEventRed){a->clock.progress_ticks=0;a->screen=ScreenRedFlag;return;}
             uint8_t n=gp_clock_step(&a->clock,dt,furi_ms_to_ticks(GP_GAME_LAP_MS));
             for(uint8_t i=0;i<n;++i){
+                bool pending=a->race.incident_pending;
                 gp_advance_lap(&a->race);
                 if(!a->autosave_blocked)a->save_requested=true;
-                if(a->race.lap>=a->race.total_laps){
+                if(gp_race_finished(&a->race)){
                     uint8_t pos=gp_position(&a->race,a->race.player);
                     a->standings_top=pos>2?pos-2:0;
                     if(a->standings_top+3>GP_DRIVER_COUNT)a->standings_top=GP_DRIVER_COUNT-3;
                     a->screen=ScreenResults;weekend_sync(a);break;
                 }
+                if(a->race.event==GpEventRed){a->clock.progress_ticks=0;a->screen=ScreenRedFlag;break;}
+                if(a->race.incident_pending&&!pending){a->engineer_return=a->screen;a->clock.progress_ticks=0;a->screen=ScreenEngineer;break;}
             }
         }
 }

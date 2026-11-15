@@ -20,4 +20,4 @@ fi
 printf '\n=== STEP 3 / 3: compile Flipper .fap ===\n'
 ufbt
 python3 tools/check_gui_stack.py
-printf '\nVersion 0.7.1 built. Connect Flipper, close qFlipper, run: ufbt launch\n'
+printf '\nVersion 0.7.2 built. Connect Flipper, close qFlipper, run: ufbt launch\n'

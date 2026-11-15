@@ -8,7 +8,7 @@ int main(void) {
         for(uint8_t team=0;team<GP_TEAM_COUNT;++team) {
             for(uint8_t initial=0;initial<2;++initial) {
                 GpRace r;
-                gp_race_start(&r,team,initial,t,0xCAFEu+t*47u+team*11u+initial);
+                gp_race_start(&r,team,initial,t,0xCAFEu+t*47u+team*11u+initial);r.incident_rng=0;
                 assert(r.player==2*team+initial);
                 assert(r.pace[0]==GpPaceNormal && r.pace[1]==GpPaceNormal);
                 assert(r.lap==0);

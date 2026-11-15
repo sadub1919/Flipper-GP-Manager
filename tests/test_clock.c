@@ -24,7 +24,7 @@ int main(void) {
         GpRace r;
         GpRaceClock clk;
         gp_clock_reset(&clk);
-        gp_race_start(&r, 0, 0, track, track+123);
+        gp_race_start(&r, 0, 0, track, track+123);r.incident_rng=0;
         for(uint8_t i=0;i<GP_TOTAL_LAPS;++i) {
             uint8_t n = gp_clock_step(&clk, 6000, 6000);
             assert(n == 1);

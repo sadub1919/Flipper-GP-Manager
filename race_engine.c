@@ -83,18 +83,26 @@ const GpDriverInfo* gp_driver_info(uint8_t id) {return &gp_names[id%GP_DRIVER_CO
 const GpTrackInfo* gp_track_info(uint8_t id) {return &gp_tracks[id%GP_TRACK_COUNT];}
 const char* gp_pace_name(GpPace p) {return p==GpPaceConserve?"SAVE":(p==GpPaceAttack?"ATTACK":"NORMAL");}
 const char* gp_tyre_name(GpTyre t) {static const char* const names[]={"SOFT","MEDIUM","HARD","INTER","WET"};return (unsigned)t<GpTyreCount?names[t]:"?";}
-const char* gp_event_name(GpEvent e) {return e==GpEventYellow?"YELLOW":(e==GpEventVsc?"VSC":(e==GpEventSafetyCar?"SAFETY CAR":"GREEN"));}
+const char* gp_event_name(GpEvent e) {return e==GpEventRed?"RED":e==GpEventYellow?"YELLOW":(e==GpEventVsc?"VSC":(e==GpEventSafetyCar?"SAFETY CAR":"GREEN"));}
 
 void gp_select_driver(GpRace* race,uint8_t slot) {
     race->active_slot=slot%2;
     race->player=(uint8_t)(race->team*2+race->active_slot);
 }
 
+const char* gp_retirement_name(GpDriverStatus s){return s==GpDriverAccident?"АВАРИЯ":(s==GpDriverFailure?"ОТКАЗ":"В ГОНКЕ");}
+uint8_t gp_running_count(const GpRace* r){uint8_t n=0;for(unsigned i=0;i<GP_DRIVER_COUNT;i++)if(r->drivers[i].status==GpDriverRunning)n++;return n;}
+bool gp_race_finished(const GpRace* r){return r->lap>=r->total_laps||!gp_running_count(r);}
+bool gp_driver_precedes(const GpDriver* a,const GpDriver* b){
+    if((a->status==GpDriverRunning)!=(b->status==GpDriverRunning))return a->status==GpDriverRunning;
+    if(a->status!=GpDriverRunning&&a->retired_lap!=b->retired_lap)return a->retired_lap>b->retired_lap;
+    return a->time_ms<b->time_ms;
+}
 static void gp_rank(GpRace* race) {
     for(uint8_t i=1;i<GP_DRIVER_COUNT;++i) {
         uint8_t id=race->ranking[i];
         uint8_t j=i;
-        while(j>0 && race->drivers[id].time_ms<race->drivers[race->ranking[j-1]].time_ms) {
+        while(j>0 && gp_driver_precedes(&race->drivers[id],&race->drivers[race->ranking[j-1]])) {
             race->ranking[j]=race->ranking[j-1]; --j;
         }
         race->ranking[j]=id;
@@ -109,6 +117,8 @@ void gp_race_start(GpRace* race,uint8_t team,uint8_t slot,uint8_t track,uint32_t
     race->pace[0]=race->pace[1]=GpPaceNormal;
     race->pit_tyres[0]=race->pit_tyres[1]=GpTyreMedium;
     race->rng_state=seed?seed:0xF1002026u;
+    race->incident_rng=seed^0x7202026u;if(!race->incident_rng)race->incident_rng=1;
+    race->incident_driver=GP_DRIVER_COUNT;
     gp_select_driver(race,slot);
     for(uint8_t i=0;i<GP_DRIVER_COUNT;++i) {
         GpDriver* d=&race->drivers[i];
@@ -143,7 +153,7 @@ uint8_t gp_position(const GpRace* race,uint8_t driver_index) {
     return GP_DRIVER_COUNT;
 }
 uint32_t gp_gap_ms(const GpRace* race,uint8_t id) {
-    if(race->lap==0)return 0;
+    if(race->lap==0||race->drivers[id].status!=GpDriverRunning)return 0;
     uint32_t time=race->drivers[id].time_ms;
     uint32_t leader=race->drivers[race->ranking[0]].time_ms;
     return time>leader?time-leader:0;
@@ -153,14 +163,53 @@ uint8_t gp_points_for_position(uint8_t pos) {
     return (pos>=1&&pos<=10)?points[pos-1]:0;
 }
 
-static GpEvent gp_event_roll(GpRace* race) {
-    /* Events are fictional game simulation, never claims about real results. */
-    if(race->lap<2 || race->lap>=race->total_laps-1) return GpEventNone;
-    uint32_t chance=gp_random(race)%100u;
-    if(chance<4)return GpEventSafetyCar;
-    if(chance<10)return GpEventVsc;
-    if(chance<21)return GpEventYellow;
-    return GpEventNone;
+bool gp_set_event(GpRace* race,GpEvent event,uint8_t laps){
+    if((unsigned)event>GpEventRed||gp_race_finished(race))return false;
+    if(event!=GpEventNone&&event!=GpEventRed&&(laps<1||laps>4))return false;
+    if(race->event!=event)race->event_serial++;
+    race->event=event;race->event_remaining=(event==GpEventNone||event==GpEventRed)?0:laps;return true;
+}
+bool gp_retire_driver(GpRace* race,uint8_t id,GpDriverStatus cause){
+    if(id>=GP_DRIVER_COUNT||cause==GpDriverRunning||(unsigned)cause>GpDriverFailure||!race->lap||gp_race_finished(race)||race->drivers[id].status!=GpDriverRunning)return false;
+    race->drivers[id].status=cause;race->drivers[id].retired_lap=race->lap;
+    if(id/2==race->team)race->pit_queued[id%2]=false;
+    race->incident_driver=id;race->incident_serial++;race->incident_pending=true;gp_rank(race);
+    if(!gp_running_count(race)){race->event=GpEventNone;race->event_remaining=0;}
+    return true;
+}
+bool gp_restart_race(GpRace* race){
+    if(race->event!=GpEventRed||gp_race_finished(race))return false;
+    uint32_t leader=race->drivers[race->ranking[0]].time_ms;unsigned position=0;
+    for(unsigned i=0;i<GP_DRIVER_COUNT;i++){
+        GpDriver* d=&race->drivers[race->ranking[i]];if(d->status!=GpDriverRunning)continue;
+        d->tyre=d->driver_index/2==race->team?race->pit_tyres[d->driver_index%2]:(GpTyre)gp_weather_tyre(&race->weather);
+        d->wear=100;d->wear_fraction=0;d->temperature=gp_tyre_blanket(d->tyre);
+        d->time_ms=leader+position++*700u;
+    }
+    race->pit_queued[0]=race->pit_queued[1]=false;race->incident_pending=false;
+    return gp_set_event(race,GpEventSafetyCar,1);
+}
+static uint32_t incident_random(GpRace* race){uint32_t x=race->incident_rng;x^=x<<13;x^=x>>17;x^=x<<5;return race->incident_rng=x;}
+static void incidents(GpRace* race){
+    if(!race->incident_rng||race->event!=GpEventNone||race->lap<2||race->lap>=race->total_laps-1)return;
+    uint8_t id=race->ranking[incident_random(race)%gp_running_count(race)];
+    GpDriver* d=&race->drivers[id];GpPace pace=id/2==race->team?race->pace[id%2]:GpPaceNormal;
+    unsigned risk=35000;
+    if(pace==GpPaceAttack)risk+=25000;
+    if(race->weather.wetness>=75)risk+=15000;
+    if(d->tyre<=GpTyreHard&&race->weather.wetness>35)risk+=40000;
+    if(d->wear<15)risk+=30000;
+    unsigned chance=incident_random(race)%100000u,crash=risk/race->total_laps,failure=18000u/race->total_laps;
+    if(chance<crash){
+        gp_retire_driver(race,id,GpDriverAccident);
+        unsigned flag=incident_random(race)%4;
+        gp_set_event(race,flag==0?GpEventRed:(flag==1?GpEventVsc:GpEventSafetyCar),2+incident_random(race)%3);
+        if(race->event==GpEventRed)for(unsigned slot=0;slot<2;slot++)race->pit_tyres[slot]=race->drivers[race->team*2+slot].tyre;
+    }else if(chance<crash+failure){
+        gp_retire_driver(race,id,GpDriverFailure);gp_set_event(race,GpEventVsc,2);
+    }else if(chance<crash+failure+12000u/race->total_laps){
+        gp_set_event(race,GpEventYellow,1);
+    }
 }
 
 uint32_t gp_pit_loss_ms(const GpRace* race){
@@ -170,14 +219,16 @@ uint32_t gp_pit_loss_ms(const GpRace* race){
     return loss;
 }
 uint8_t gp_pit_rejoin_position(const GpRace* race,uint8_t driver){
+    if(race->drivers[driver].status!=GpDriverRunning)return 0;
     uint64_t rejoin=(uint64_t)race->drivers[driver].time_ms+gp_pit_loss_ms(race);
     uint8_t position=1;
-    for(unsigned i=0;i<GP_DRIVER_COUNT;i++)if(i!=driver&&race->drivers[i].time_ms<=rejoin)position++;
+    for(unsigned i=0;i<GP_DRIVER_COUNT;i++)if(i!=driver&&race->drivers[i].status==GpDriverRunning&&race->drivers[i].time_ms<=rejoin)position++;
     return position;
 }
 static bool pit_traffic(const GpRace* race,uint8_t driver,const uint32_t* previous){
+    if(race->drivers[driver].status!=GpDriverRunning)return false;
     uint64_t rejoin=(uint64_t)(previous?previous[driver]:race->drivers[driver].time_ms)+gp_pit_loss_ms(race);
-    for(unsigned i=0;i<GP_DRIVER_COUNT;i++)if(i!=driver){
+    for(unsigned i=0;i<GP_DRIVER_COUNT;i++)if(i!=driver&&race->drivers[i].status==GpDriverRunning){
         uint32_t time=previous?previous[i]:race->drivers[i].time_ms;
         if(time<=rejoin&&rejoin-time<1800u)return true;
     }
@@ -187,12 +238,15 @@ bool gp_pit_traffic(const GpRace* race,uint8_t driver){return pit_traffic(race,d
 
 static void gp_apply_one(GpRace* race,uint8_t index,const uint32_t previous[GP_DRIVER_COUNT]) {
     GpDriver* d=&race->drivers[index];
+    if(d->status!=GpDriverRunning)return;
     const GpTrackInfo* track=gp_track_info(race->track);
     const GpDriverInfo* info=gp_driver_info(index);
     const GpTeamInfo* team=gp_team_info(info->team);
     bool own=info->team==race->team;
     uint8_t slot=index%2;
     GpPace pace=own?race->pace[slot]:GpPaceNormal;
+    bool neutral=race->event==GpEventSafetyCar||race->event==GpEventVsc;
+    if(neutral)pace=GpPaceConserve;
     bool pit=false;
     GpTyre next=d->tyre;
 
@@ -229,7 +283,7 @@ static void gp_apply_one(GpRace* race,uint8_t index,const uint32_t previous[GP_D
     if(d->wear<15)laptime+=(15-d->wear)*140;
     /* Small additional penalty for nearby traffic in the classification. */
     uint8_t pos=gp_position(race,index);
-    if(!pit && pos>1 && race->lap>0) {
+    if(!neutral && !pit && pos>1 && race->lap>0) {
         uint8_t ahead=race->ranking[pos-2];
         uint32_t their_time=previous[ahead];
         if(d->time_ms>=their_time && d->time_ms-their_time<1600u)
@@ -239,9 +293,10 @@ static void gp_apply_one(GpRace* race,uint8_t index,const uint32_t previous[GP_D
     if(race->event==GpEventVsc)laptime+=9200;
     if(race->event==GpEventSafetyCar)laptime+=14500;
 
+    if(neutral)laptime=(int32_t)track->length_m*18+12000;
     if(pit){
         laptime+=(int32_t)gp_pit_loss_ms(race);
-        if(pit_traffic(race,index,previous))laptime+=600+track->difficulty*300;
+        if(!neutral&&pit_traffic(race,index,previous))laptime+=600+track->difficulty*300;
     }
     int wear=(int)track->tyre_wear;
     if(d->tyre==GpTyreSoft)wear+=5;
@@ -261,14 +316,22 @@ static void gp_apply_one(GpRace* race,uint8_t index,const uint32_t previous[GP_D
 }
 
 void gp_advance_lap(GpRace* race) {
-    if(race->lap>=race->total_laps)return;
+    if(gp_race_finished(race)||race->event==GpEventRed)return;
+    GpEvent active=race->event;
     uint32_t previous[GP_DRIVER_COUNT];
     for(uint8_t i=0;i<GP_DRIVER_COUNT;++i)previous[i]=race->drivers[i].time_ms;
-    for(uint8_t i=0;i<GP_DRIVER_COUNT;++i) gp_apply_one(race,i,previous);
-    ++race->lap;
-    gp_weather_step(&race->weather);
-    gp_rank(race);
-    GpEvent prev=race->event;
-    race->event=gp_event_roll(race);
-    if(prev!=race->event && race->event!=GpEventNone)++race->event_serial;
+    for(uint8_t i=0;i<GP_DRIVER_COUNT;++i)gp_apply_one(race,i,previous);
+    ++race->lap;gp_weather_step(&race->weather);gp_rank(race);
+    if(active==GpEventSafetyCar){
+        uint32_t lead=race->drivers[race->ranking[0]].time_ms;
+        for(unsigned i=1;i<gp_running_count(race);i++){
+            GpDriver* d=&race->drivers[race->ranking[i]];uint32_t gap=d->time_ms-lead,target=i*700u;
+            if(gap>target)d->time_ms=lead+(gap+target)/2;
+        }
+    }
+    if(gp_race_finished(race)){race->event=GpEventNone;race->event_remaining=0;return;}
+    if(active!=GpEventNone){
+        if(race->event_remaining)race->event_remaining--;
+        if(!race->event_remaining)gp_set_event(race,GpEventNone,0);
+    }else incidents(race);
 }

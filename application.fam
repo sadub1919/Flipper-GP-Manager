@@ -7,6 +7,6 @@ App(
     stack_size=4 * 1024,
     fap_category="Games",
     fap_icon="icon.png",
-    fap_version="0.7.1",
-    fap_description="GP Manager 0.7.1: Tyre temperatures, warmup, undercut/overcut and pit traffic estimates",
+    fap_version="0.7.2",
+    fap_description="GP Manager 0.7.2: Retirements, persistent SC/VSC, red flags and tyre choice at restart",
 )
