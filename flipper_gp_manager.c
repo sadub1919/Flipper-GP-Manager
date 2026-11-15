@@ -18,13 +18,13 @@
 #include "team_logos.h"
 #include "game_logo.h"
 
-/* v0.7.0: dynamic weather, five tyre types and labelled race markers. */
+/* v0.8.0: championship, player roles and independent save profiles. */
 #define GP_GAME_LAP_MS GP_LAP_MS
 
 typedef enum {
     ScreenTeam, ScreenTrack, ScreenQualifying, ScreenGrid,
     ScreenMap, ScreenStandings, ScreenDriver, ScreenStrategy,
-    ScreenResults, ScreenHelp, ScreenPause, ScreenMain, ScreenDistance, ScreenReplace, ScreenNotice, ScreenAbandon, ScreenQualResults, ScreenQualExit, ScreenWeekend, ScreenWeekendReplace, ScreenCalendar, ScreenWeather, ScreenRedFlag, ScreenEngineer,
+    ScreenResults, ScreenHelp, ScreenPause, ScreenMain, ScreenDistance, ScreenReplace, ScreenNotice, ScreenAbandon, ScreenQualResults, ScreenQualExit, ScreenWeekend, ScreenWeekendReplace, ScreenCalendar, ScreenWeather, ScreenRedFlag, ScreenEngineer, ScreenRole, ScreenSlots, ScreenChampionship, ScreenHistory, ScreenHistoryResult, ScreenChampions,
 } GpScreen;
 
 typedef struct {
@@ -45,6 +45,9 @@ typedef struct {
     GpSaveStatus save_status;
     GpSaveIo storage;
     bool full_distance,save_requested,save_exit,load_requested,autosave_blocked;
+    GpMode chosen_mode;
+    bool championship_teams,history_sprint;
+    uint8_t history_track,slot_choice;
     uint8_t pause_item;
     uint8_t chosen_team,chosen_track,preferred_driver;
     uint8_t standings_top,grid_top,help_page,menu_item;
@@ -230,7 +233,7 @@ static void draw_qualifying(Canvas* c,const GpApp* a){
     uint8_t fresh=q->soft_used[slot]<GP_QUAL_SOFT_SETS?GP_QUAL_SOFT_SETS-q->soft_used[slot]:0;
     snprintf(b,sizeof(b),"^V %c  SOFT:%u",tyre_char(q->tyre[slot]),fresh);txt(c,2,28,b);
     snprintf(b,sizeof(b),"<> %s OK: ВЫЕЗД",pace_ru(q->pace[slot]));txt(c,2,41,b);
-    bottom(c,"ДЕРЖИ OK: 2-Й ПИЛОТ");
+    bottom(c,q->mode==GpModeDriver?"НАПАРНИК: ИИ":"ДЕРЖИ OK: 2-Й ПИЛОТ");
 }
 static void draw_qual_results(Canvas* c,const GpApp* a){
     const GpQualifying* q=&a->qualifying;char b[48];
@@ -265,8 +268,45 @@ static void draw_weekend(Canvas* c,const GpApp* a){
         gp_weekend_sprint(w,a->race.track)?"СПРИНТ":"ГРАН-ПРИ");top(c,b);
     txt(c,2,15,track_ru[a->race.track]);
     txt(c,2,28,gp_stage_name(w->stage));
-    txt(c,2,41,w->stage==GpStageDone?"БЕЗ ЗАЧЁТА ОЧКОВ":(w->phase==GpWeekendResult?"СЕССИЯ ЗАВЕРШЕНА":"ГОТОВ К ВЫЕЗДУ"));
-    bottom(c,w->stage==GpStageDone?"OK: ГЛАВНОЕ МЕНЮ":(w->phase==GpWeekendResult?"OK: СЛЕД. СЕССИЯ":"< КАЛЕНДАРЬ OK СТАРТ"));
+    txt(c,2,41,w->incomplete_history?"НЕПОЛНЫЙ ЗАЧЁТ":"> ЗАЧЁТ  ^ ИСТОРИЯ");
+    bottom(c,w->stage==GpStageDone?"OK: ИТОГИ СЕЗОНА":(w->phase==GpWeekendResult?"OK: СЛЕД. СЕССИЯ":"< КАЛЕНДАРЬ OK СТАРТ"));
+}
+static void draw_championship(Canvas* c,const GpApp* a){
+    const GpWeekend* w=&a->weekend;bool teams=a->championship_teams;char b[48];
+    top(c,w->incomplete_history?"НЕПОЛНЫЙ ЗАЧЁТ":(teams?"КУБОК КОНСТРУКТОРОВ":"ЧЕМПИОНАТ ПИЛОТОВ"));
+    for(unsigned row=0;row<3;row++){
+        unsigned p=a->standings_top+row;if(p>=(teams?GP_TEAM_COUNT:GP_DRIVER_COUNT))break;
+        unsigned id=teams?w->team_order[p]:w->driver_order[p];
+        snprintf(b,sizeof(b),"%02u %s %u ОЧК",p+1,teams?gp_team_info(id)->code:gp_driver_info(id)->code,teams?w->team_points[id]:w->driver_points[id]);txt(c,4,15+row*12,b);
+    }
+    bottom(c,"<> ЗАЧЁТ BACK НАЗАД");
+}
+static void draw_champions(Canvas* c,const GpApp* a){
+    const GpWeekend* w=&a->weekend;char b[48];top(c,w->incomplete_history?"ИТОГИ ЧАСТИ СЕЗОНА":"ЧЕМПИОНЫ СЕЗОНА");
+    snprintf(b,sizeof(b),"ПИЛОТ: %s",gp_driver_info(w->driver_order[0])->code);txt(c,2,15,b);
+    snprintf(b,sizeof(b),"КОМАНДА: %s",gp_team_info(w->team_order[0])->code);txt(c,2,28,b);
+    txt(c,2,41,w->incomplete_history?"РАННИЕ ОЧКИ НЕ УЧТЕНЫ":"23 ЭТАПА ЗАВЕРШЕНЫ");bottom(c,"OK МЕНЮ BACK НАЗАД");
+}
+static void draw_history(Canvas* c,const GpApp* a,bool detail){
+    const GpRoundResult* result=&a->weekend.results[a->history_track][a->history_sprint];char b[48];
+    snprintf(b,sizeof(b),"%s %s",detail?(a->history_sprint?"S":"GP"):"ЭТАП",track_ru[a->history_track]);top(c,b);
+    if(!detail){
+        txt(c,2,15,"РЕЗУЛЬТАТЫ ЭТАПА");
+        for(unsigned k=0;k<2;k++){
+            const GpRoundResult* r=&a->weekend.results[a->history_track][k];
+            snprintf(b,sizeof(b),"%s: %s",k?"СПРИНТ":"ГОНКА",r->recorded?gp_driver_info(r->finish[0]&127)->code:"НЕТ ДАННЫХ");txt(c,4,28+k*13,b);
+        }
+        selection_frame(c,1,a->history_sprint?39:26,126,12);bottom(c,"<> ЭТАП OK РЕЗУЛЬТАТ");
+    }else{
+        if(!result->recorded)txt(c,2,28,"НЕТ ДАННЫХ");
+        else for(unsigned row=0;row<3;row++){
+            unsigned p=a->standings_top+row;if(p>=GP_DRIVER_COUNT)break;uint8_t id=result->finish[p];
+            if(id&128)snprintf(b,sizeof(b),"%02u %s DNF",p+1,gp_driver_info(id&127)->code);
+            else snprintf(b,sizeof(b),"%02u %s %u ОЧК",p+1,gp_driver_info(id)->code,a->history_sprint?(p<8?8-p:0):gp_points_for_position(p+1));
+            txt(c,4,15+row*12,b);
+        }
+        bottom(c,"^V СПИСОК BACK НАЗАД");
+    }
 }
 static void draw_calendar(Canvas* c,const GpApp* a){
     top(c,"КАЛЕНДАРЬ: 6 СПРИНТОВ");char b[48];
@@ -299,7 +339,7 @@ static void draw_retired(Canvas* c,const GpRace* r){
     const GpDriver* d=&r->drivers[r->player];char b[40];
     snprintf(b,sizeof(b),"%s DNF: %s",gp_driver_info(r->player)->code,gp_retirement_name(d->status));txt(c,2,15,b);
     snprintf(b,sizeof(b),"СХОД НА КРУГЕ %u",d->retired_lap);txt(c,2,28,b);
-    txt(c,2,41,"ДЕРЖИ OK: 2-Й ПИЛОТ");
+    txt(c,2,41,r->mode==GpModeDriver?"ГОНКА ПРОДОЛЖАЕТСЯ":"ДЕРЖИ OK: 2-Й ПИЛОТ");
 }
 static void draw_battle(Canvas* c,const GpApp* a){
     const GpRace* r=&a->race;char b[48];const GpBattleReport* report=&r->battle[r->active_slot];
@@ -344,7 +384,7 @@ static void draw_red(Canvas* c,const GpApp* a){
     txt(c,2,15,b);
     if(r->drivers[r->player].status==GpDriverRunning)snprintf(b,sizeof(b),"%s ШИНЫ: %c",gp_driver_info(r->player)->code,tyre_char(r->pit_tyres[r->active_slot]));
     else snprintf(b,sizeof(b),"%s DNF",gp_driver_info(r->player)->code);
-    txt(c,2,28,b);txt(c,2,41,"OK: РЕСТАРТ ЗА SC");bottom(c,"<> ПИЛОТ ^V ШИНЫ");
+    txt(c,2,28,b);txt(c,2,41,"OK: РЕСТАРТ ЗА SC");bottom(c,r->mode==GpModeDriver?"^V ШИНЫ OK РЕСТАРТ":"<> ПИЛОТ ^V ШИНЫ");
 }
 static void draw_map(Canvas* c,const GpApp* a){
     const GpRace* r=&a->race;char b[32];
@@ -383,12 +423,12 @@ static void draw_driver(Canvas* c,const GpApp* a){
     const GpRace* r=&a->race;uint8_t slot=r->active_slot,index=r->player;
     const GpDriver* d=&r->drivers[index];char b[40];
     top(c,"ПИЛОТ");
-    if(d->status!=GpDriverRunning){draw_retired(c,r);bottom(c,"<> ЭКРАНЫ OK ПИЛОТ");return;}
+    if(d->status!=GpDriverRunning){draw_retired(c,r);bottom(c,r->mode==GpModeDriver?"<> ЭКРАНЫ BACK МЕНЮ":"<> ЭКРАНЫ OK ПИЛОТ");return;}
     snprintf(b,sizeof(b),"%s P%02u ПИТ %u",gp_driver_info(index)->code,gp_position(r,index),d->pits);latin(c,4,22,b);
     snprintf(b,sizeof(b),"%s %c %u%%",pace_ru(r->pace[slot]),tyre_char(d->tyre),d->wear);txt(c,3,27,b);
     int state=gp_tyre_temperature_state(d->tyre,d->temperature);
     snprintf(b,sizeof(b),"T%03uC %s",d->temperature,state<0?"ХОЛОД":(state>0?"ПЕРЕГРЕВ":"НОРМА"));txt(c,3,40,b);
-    bottom(c,"^V ТЕМП  OK ПИЛОТ");
+    bottom(c,r->mode==GpModeDriver?"^V ТЕМП BACK МЕНЮ":"^V ТЕМП  OK ПИЛОТ");
 }
 static void draw_strategy(Canvas* c,const GpApp* a){
     const GpRace* r=&a->race;uint8_t slot=r->active_slot;char b[38];
@@ -400,7 +440,7 @@ static void draw_strategy(Canvas* c,const GpApp* a){
     bottom(c,"^V ШИНЫ OK ПИТ");
 }
 static void draw_help(Canvas* c,const GpApp* a){
-    char b[32];snprintf(b,sizeof(b),"ПОМОЩЬ %u/17",a->help_page+1);top(c,b);
+    char b[32];snprintf(b,sizeof(b),"ПОМОЩЬ %u/19",a->help_page+1);top(c,b);
     if(a->help_page==0){
         txt(c,2,15,"<>: ЭКРАНЫ");
         txt(c,2,28,"BACK: МЕНЮ ПАУЗЫ");
@@ -452,6 +492,11 @@ static void draw_help(Canvas* c,const GpApp* a){
     if(a->help_page==16){
         txt(c,2,15,"ИНЖЕНЕР: <> СВОДКИ");txt(c,2,28,"ДЕРЖИ OK: ПИЛОТ");txt(c,2,41,"АТАКА: ШАНС И РИСК");
     }
+    if(a->help_page==17){
+        txt(c,2,15,"СЛОТЫ: ГЛАВНОЕ МЕНЮ");txt(c,2,28,"ГОНЩИК: НАПАРНИК ИИ");txt(c,2,41,"СЕЗОН: > ЗАЧЁТ");
+    }else if(a->help_page==18){
+        txt(c,2,15,"^ ИСТОРИЯ ЭТАПОВ");txt(c,2,28,"ЗАЧЁТ: <> ПИЛ/КОМ");txt(c,2,41,"СЛОТ 1: СТАРЫЙ ФАЙЛ");
+    }
     bottom(c,"<> СТР. OK ЗАКРЫТЬ");
 }
 static void draw_cb(Canvas* c,void* ctx){
@@ -466,12 +511,24 @@ static void draw_cb(Canvas* c,void* ctx){
     case ScreenMain:{
         for(unsigned y=0;y<10;y++)for(unsigned x=0;x<34;x++)
             if(gp_game_logo[y]&(1ULL<<x))canvas_draw_dot(c,2+x,y);
-        txt(c,42,0,"GP 0.7.3");canvas_draw_line(c,0,11,127,11);
-        static const char* const items[]={"ПРОДОЛЖИТЬ","УИК-ЭНДЫ","НОВАЯ ГОНКА","УПРАВЛЕНИЕ","ВЫХОД"};
+        char title[24];snprintf(title,sizeof(title),"GP 0.8.0 C%u",a->storage.profile+1);txt(c,42,0,title);canvas_draw_line(c,0,11,127,11);
+        static const char* const items[]={"ПРОДОЛЖИТЬ","НОВЫЙ СЕЗОН","НОВАЯ ГОНКА","УПРАВЛЕНИЕ","ВЫХОД","СЛОТЫ"};
         uint8_t first=a->menu_item>2?a->menu_item-2:0;
         for(uint8_t row=0;row<3;row++)txt(c,8,15+row*13,items[first+row]);
         selection_frame(c,2,13+(a->menu_item-first)*13,124,13);
         bottom(c,"^V ВЫБОР OK ОТКРЫТЬ");break;}
+    case ScreenRole:
+        top(c,"РЕЖИМ ИГРЫ");txt(c,8,15,"ЗА КОМАНДУ");txt(c,8,28,"ЗА ГОНЩИКА");
+        txt(c,2,41,a->chosen_mode==GpModeDriver?"НАПАРНИК: ИИ":"ОБА ПИЛОТА ВРУЧНУЮ");
+        selection_frame(c,2,a->chosen_mode==GpModeDriver?26:13,124,12);bottom(c,"^V ВЫБОР OK ДАЛЕЕ");break;
+    case ScreenSlots:{
+        top(c,"СЛОТ СОХРАНЕНИЯ");char b[32];
+        for(unsigned i=0;i<GP_SAVE_PROFILES;i++){snprintf(b,sizeof(b),"СЛОТ %u%s",i+1,i==a->storage.profile?" *":"");txt(c,8,15+i*13,b);}
+        selection_frame(c,2,13+a->slot_choice*13,124,12);bottom(c,"^V ВЫБОР OK ПРИНЯТЬ");break;}
+    case ScreenChampionship:draw_championship(c,a);break;
+    case ScreenChampions:draw_champions(c,a);break;
+    case ScreenHistory:draw_history(c,a,false);break;
+    case ScreenHistoryResult:draw_history(c,a,true);break;
     case ScreenDistance:{
         top(c,"ДИСТАНЦИЯ");char b[40];
         txt(c,8,16,"КОРОТКАЯ: 12 КР");
@@ -483,15 +540,15 @@ static void draw_cb(Canvas* c,void* ctx){
     case ScreenWeather:draw_weather(c,a);break;
     case ScreenWeekend:draw_weekend(c,a);break;
     case ScreenCalendar:draw_calendar(c,a);break;
-    case ScreenWeekendReplace:
-        top(c,"НОВЫЕ УИК-ЭНДЫ");txt(c,2,16,"ЗАМЕНИТ СОХРАНЕНИЕ");txt(c,2,32,"23 ЭТАПА / 6 СПРИНТОВ");
-        bottom(c,"OK СТАРТ BACK НАЗАД");break;
+    case ScreenWeekendReplace:{
+        char b[32];top(c,"НОВЫЙ СЕЗОН");snprintf(b,sizeof(b),"ЗАМЕНИТ СЛОТ %u",a->storage.profile+1);txt(c,2,16,b);txt(c,2,32,"23 ЭТАПА / 6 СПРИНТОВ");
+        bottom(c,"OK СТАРТ BACK НАЗАД");break;}
     case ScreenQualExit:
         top(c,"ПРЕРВАТЬ КВАЛУ?");txt(c,2,16,"РЕЗУЛЬТАТЫ ПРОПАДУТ");txt(c,2,32,"ВОЗВРАТ К ДИСТАНЦИИ");
         bottom(c,"OK ВЫЙТИ BACK НАЗАД");break;
-    case ScreenReplace:
-        top(c,"НОВАЯ ГОНКА");txt(c,2,16,"ЗАМЕНИТ СОХРАНЕНИЕ");txt(c,2,32,"ПРЕЖНЕЙ ГОНКИ");
-        bottom(c,"OK СТАРТ BACK НАЗАД");break;
+    case ScreenReplace:{
+        char b[32];top(c,"НОВАЯ ГОНКА");snprintf(b,sizeof(b),"ЗАМЕНИТ СЛОТ %u",a->storage.profile+1);txt(c,2,16,b);txt(c,2,32,"ПРЕЖНЕГО ПРОГРЕССА");
+        bottom(c,"OK СТАРТ BACK НАЗАД");break;}
     case ScreenAbandon:
         top(c,"ВЫЙТИ БЕЗ ЗАПИСИ?");txt(c,2,16,"НОВЫЙ ПРОГРЕСС");txt(c,2,32,"НЕ БУДЕТ СОХРАНЁН");
         bottom(c,"OK ВЫЙТИ BACK НАЗАД");break;
@@ -542,6 +599,7 @@ static void start_race(GpApp* a){
     GpWeather weather=a->weekend.active?a->race.weather:a->qualifying.weather;
     if(!weather.rng)gp_weather_start(&weather,furi_get_tick());
     gp_race_start(&a->race,a->chosen_team,a->preferred_driver,a->chosen_track,furi_get_tick());
+    gp_race_set_mode(&a->race,a->chosen_mode,a->preferred_driver);
     a->race.weather=weather;
     GpTyre tyre=(GpTyre)gp_weather_tyre(&weather);
     for(unsigned i=0;i<GP_DRIVER_COUNT;i++){a->race.drivers[i].tyre=tyre;a->race.drivers[i].temperature=gp_tyre_optimal(tyre);}
@@ -553,6 +611,7 @@ static void start_race(GpApp* a){
     gp_clock_reset(&a->clock);a->screen=ScreenMap;a->standings_top=0;a->last_tick=furi_get_tick();
 }
 static void weekend_next(GpApp* a){
+    gp_weekend_record(&a->weekend,&a->race);
     GpStage previous=a->weekend.stage;GpWeather weather=a->race.weather;
     if(!gp_weekend_next(&a->weekend,a->race.track))return;
     if(previous==GpStageRace&&a->weekend.stage!=GpStageDone){
@@ -561,6 +620,7 @@ static void weekend_next(GpApp* a){
     }
     if(a->weekend.stage==GpStageQual||a->weekend.stage==GpStageFP1){
         gp_race_start(&a->race,a->chosen_team,a->preferred_driver,a->chosen_track,furi_get_tick());
+    gp_race_set_mode(&a->race,a->chosen_mode,a->preferred_driver);
         if(previous!=GpStageRace)a->race.weather=weather;
         memset(&a->qualifying,0,sizeof(a->qualifying));
         gp_clock_reset(&a->clock);
@@ -571,6 +631,7 @@ static void weekend_begin(GpApp* a){
     gp_weekend_start(&a->weekend,a->full_distance,furi_hal_random_get());
     memset(&a->qualifying,0,sizeof(a->qualifying));
     gp_race_start(&a->race,a->chosen_team,a->preferred_driver,a->chosen_track,furi_get_tick());
+    gp_race_set_mode(&a->race,a->chosen_mode,a->preferred_driver);
     gp_clock_reset(&a->clock);a->screen=ScreenWeekend;
     a->save_requested=true;a->autosave_blocked=false;
 }
@@ -586,6 +647,50 @@ static void show_help(GpApp* a){
     a->help_return=a->screen;a->help_page=0;a->screen=ScreenHelp;
 }
 static void handle_input(GpApp* a,const InputEvent* e){
+    if(a->screen==ScreenRole){
+        if(e->type!=InputTypeShort)return;
+        if(e->key==InputKeyUp)a->chosen_mode=GpModeTeam;
+        else if(e->key==InputKeyDown)a->chosen_mode=GpModeDriver;
+        else if(e->key==InputKeyOk)a->screen=ScreenTeam;
+        else if(e->key==InputKeyBack)a->screen=ScreenMain;
+        return;
+    }
+    if(a->screen==ScreenSlots){
+        if(e->type!=InputTypeShort)return;
+        if(e->key==InputKeyUp&&a->slot_choice)a->slot_choice--;
+        else if(e->key==InputKeyDown&&a->slot_choice+1u<GP_SAVE_PROFILES)a->slot_choice++;
+        else if(e->key==InputKeyOk){a->storage.profile=a->slot_choice;a->screen=ScreenMain;a->menu_item=0;}
+        else if(e->key==InputKeyBack)a->screen=ScreenMain;
+        return;
+    }
+    if(a->screen==ScreenChampions){
+        if(e->type==InputTypeShort&&e->key==InputKeyOk){a->screen=ScreenMain;a->menu_item=0;}
+        else if(e->type==InputTypeShort&&e->key==InputKeyBack)a->screen=ScreenWeekend;
+        return;
+    }
+    if(a->screen==ScreenChampionship){
+        if(e->type!=InputTypeShort&&e->type!=InputTypeRepeat)return;
+        unsigned count=a->championship_teams?GP_TEAM_COUNT:GP_DRIVER_COUNT;
+        if(e->key==InputKeyUp&&a->standings_top)a->standings_top--;
+        else if(e->key==InputKeyDown&&a->standings_top+3u<count)a->standings_top++;
+        else if(e->type==InputTypeShort&&(e->key==InputKeyLeft||e->key==InputKeyRight)){a->championship_teams=!a->championship_teams;a->standings_top=0;}
+        else if(e->type==InputTypeShort&&(e->key==InputKeyBack||e->key==InputKeyOk))a->screen=ScreenWeekend;
+        return;
+    }
+    if(a->screen==ScreenHistory||a->screen==ScreenHistoryResult){
+        if(e->type!=InputTypeShort&&e->type!=InputTypeRepeat)return;
+        if(a->screen==ScreenHistoryResult){
+            standings_scroll(a,e->key);
+            if(e->type==InputTypeShort&&(e->key==InputKeyBack||e->key==InputKeyOk))a->screen=ScreenHistory;
+        }else if(e->type==InputTypeShort){
+            if(e->key==InputKeyLeft)a->history_track=(a->history_track+GP_TRACK_COUNT-1)%GP_TRACK_COUNT;
+            else if(e->key==InputKeyRight)a->history_track=(a->history_track+1)%GP_TRACK_COUNT;
+            else if(e->key==InputKeyUp||e->key==InputKeyDown)a->history_sprint=!a->history_sprint;
+            else if(e->key==InputKeyOk){a->screen=ScreenHistoryResult;a->standings_top=0;}
+            else if(e->key==InputKeyBack)a->screen=ScreenWeekend;
+        }
+        return;
+    }
     if(a->screen==ScreenEngineer){
         if(e->type==InputTypeShort&&(e->key==InputKeyLeft||e->key==InputKeyRight))a->engineer_battle=!a->engineer_battle;
         if(e->type==InputTypeLong&&e->key==InputKeyOk)gp_select_driver(&a->race,1-a->race.active_slot);
@@ -636,13 +741,16 @@ static void handle_input(GpApp* a,const InputEvent* e){
         if(e->type!=InputTypeShort)return;
         if(e->key==InputKeyBack){a->help_return=a->screen;a->pause_item=0;a->screen=ScreenPause;}
         else if(e->key==InputKeyLeft){a->screen=ScreenCalendar;a->standings_top=0;}
+        else if(e->key==InputKeyRight){a->screen=ScreenChampionship;a->championship_teams=false;a->standings_top=0;}
+        else if(e->key==InputKeyUp){a->screen=ScreenHistory;a->history_track=a->race.track;a->history_sprint=false;}
         else if(e->key==InputKeyOk){
             GpWeekend* w=&a->weekend;
-            if(w->stage==GpStageDone){a->screen=ScreenMain;a->menu_item=0;}
+            if(w->stage==GpStageDone)a->screen=ScreenChampions;
             else if(w->phase==GpWeekendResult)weekend_next(a);
             else if(w->stage==GpStageRace||w->stage==GpStageSprint)start_race(a);
             else{
                 gp_qualifying_start(&a->qualifying,a->race.track,a->race.team,furi_get_tick());
+                a->qualifying.mode=a->race.mode;a->qualifying.controlled_slot=a->race.controlled_slot;
                 a->qualifying.weather=a->race.weather;
                 if(!a->qualifying.weather.rng)gp_weather_start(&a->qualifying.weather,furi_get_tick());
                 GpTyre tyre=(GpTyre)gp_weather_tyre(&a->qualifying.weather);
@@ -680,6 +788,7 @@ static void handle_input(GpApp* a,const InputEvent* e){
             else{
                 memset(&a->weekend,0,sizeof(a->weekend));
                 gp_qualifying_start(&a->qualifying,a->chosen_track,a->chosen_team,furi_get_tick());
+                a->qualifying.mode=a->chosen_mode;a->qualifying.controlled_slot=a->preferred_driver;
                 a->screen=ScreenQualifying;
             }
         }
@@ -689,12 +798,13 @@ static void handle_input(GpApp* a,const InputEvent* e){
     if(a->screen==ScreenMain){
         if(e->type!=InputTypeShort)return;
         if(e->key==InputKeyUp&&a->menu_item>0)--a->menu_item;
-        else if(e->key==InputKeyDown&&a->menu_item<4)++a->menu_item;
+        else if(e->key==InputKeyDown&&a->menu_item<5)++a->menu_item;
         else if(e->key==InputKeyBack)a->running=false;
         else if(e->key==InputKeyOk){
             if(a->menu_item==0)a->load_requested=true;
-            else if(a->menu_item==1||a->menu_item==2){a->new_weekend=a->menu_item==1;a->screen=ScreenTeam;}
+            else if(a->menu_item==1||a->menu_item==2){a->new_weekend=a->menu_item==1;a->screen=ScreenRole;}
             else if(a->menu_item==3)show_help(a);
+            else if(a->menu_item==5){a->screen=ScreenSlots;a->slot_choice=a->storage.profile;}
             else a->running=false;
         }
         return;
@@ -716,13 +826,13 @@ static void handle_input(GpApp* a,const InputEvent* e){
     }
     if(a->screen==ScreenHelp){
         if(e->type!=InputTypeShort)return;
-        if(e->key==InputKeyRight)a->help_page=(a->help_page+1)%17;
-        else if(e->key==InputKeyLeft)a->help_page=(a->help_page+16)%17;
+        if(e->key==InputKeyRight)a->help_page=(a->help_page+1)%19;
+        else if(e->key==InputKeyLeft)a->help_page=(a->help_page+18)%19;
         else if(e->key==InputKeyOk||e->key==InputKeyBack)a->screen=a->help_return;
         return;
     }
     if(e->type==InputTypeLong){
-        if(a->screen==ScreenQualifying&&e->key==InputKeyOk){
+        if(a->screen==ScreenQualifying&&e->key==InputKeyOk&&a->chosen_mode==GpModeTeam){
             a->preferred_driver=1-a->preferred_driver;
             if(a->weekend.active){gp_select_driver(&a->race,a->preferred_driver);a->save_requested=true;}
         }
@@ -739,7 +849,7 @@ static void handle_input(GpApp* a,const InputEvent* e){
         a->help_return=a->screen;a->pause_item=0;a->screen=ScreenPause;return;
     }
     if(e->key==InputKeyBack&&e->type==InputTypeShort){
-        if(a->screen==ScreenTeam)a->screen=ScreenMain;
+        if(a->screen==ScreenTeam)a->screen=ScreenRole;
         else if(a->screen==ScreenTrack)a->screen=ScreenTeam;
         else if(a->screen==ScreenQualifying){a->qual_return=a->screen;a->screen=ScreenQualExit;}
         else if(a->screen==ScreenGrid)a->screen=ScreenQualResults;
@@ -835,7 +945,7 @@ static void weekend_sync(GpApp* a){
     if(a->screen==ScreenQualifying)a->weekend.phase=GpWeekendQualSetup;
     else if(a->screen==ScreenQualResults)a->weekend.phase=GpWeekendQualResult;
     else if(a->screen==ScreenGrid&&a->weekend.stage>GpStageFP3)a->weekend.phase=GpWeekendGrid;
-    else if(a->screen==ScreenResults)a->weekend.phase=GpWeekendResult;
+    else if(a->screen==ScreenResults){a->weekend.phase=GpWeekendResult;gp_weekend_record(&a->weekend,&a->race);}
     a->weekend.qualifying=a->qualifying;
     if(a->qualifying.session&&(a->weekend.stage<=GpStageFP3||a->weekend.stage==GpStageQual||a->weekend.stage==GpStageSprintQual))
         a->race.weather=a->qualifying.weather;
@@ -882,7 +992,7 @@ static void process_storage(GpApp* a){
         if(a->weekend.active)a->qualifying=a->weekend.qualifying;
         a->clock.progress_ticks=(uint32_t)((uint64_t)game->clock.progress_ticks*furi_ms_to_ticks(GP_LAP_MS)/GP_LAP_MS);
         a->clock.paused=true;a->chosen_team=a->race.team;a->chosen_track=a->race.track;
-        a->preferred_driver=a->race.active_slot;a->full_distance=a->race.total_laps!=GP_TOTAL_LAPS;
+        a->preferred_driver=a->race.active_slot;a->chosen_mode=a->race.mode;a->full_distance=a->race.total_laps!=GP_TOTAL_LAPS;
         a->screen=a->weekend.active?weekend_screen(&a->weekend):(gp_race_finished(&a->race)?ScreenResults:ScreenMap);
         if(a->weekend.active)a->full_distance=a->weekend.full_distance;
         if(a->screen==ScreenMap){

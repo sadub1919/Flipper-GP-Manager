@@ -2,7 +2,8 @@
 #include "tyre_model.h"
 #include <string.h>
 #include <limits.h>
-#define SAVE_VERSION 6u /* Binary layout AND simulation rules version. */
+#include <stdlib.h>
+#define SAVE_VERSION 7u /* Binary layout AND simulation rules version. */
 static void put32(uint8_t* p,uint32_t n){for(unsigned i=0;i<4;i++)p[i]=(uint8_t)(n>>(8*i));}
 static uint32_t get32(const uint8_t* p){uint32_t n=0;for(unsigned i=0;i<4;i++)n|=(uint32_t)p[i]<<(8*i);return n;}
 static uint32_t crc32(const uint8_t* p,size_t n){
@@ -12,6 +13,8 @@ static uint32_t crc32(const uint8_t* p,size_t n){
 }
 static bool valid(const GpSavedGame* s){
     const GpRace* r=&s->race;
+    if((unsigned)r->mode>GpModeDriver||r->controlled_slot>1||(r->mode==GpModeDriver&&r->active_slot!=r->controlled_slot))return false;
+    if(r->mode==GpModeDriver&&r->pit_queued[1-r->controlled_slot])return false;
     if(r->team>=GP_TEAM_COUNT||r->track>=GP_TRACK_COUNT||r->active_slot>1||r->player!=r->team*2+r->active_slot)return false;
     if(!gp_weather_valid(&r->weather)||!gp_weather_valid(&s->weekend.qualifying.weather))return false;
     for(unsigned i=0;i<GP_DRIVER_COUNT;i++){
@@ -88,17 +91,22 @@ bool gp_save_encode(const GpSavedGame* s,uint8_t out[GP_SAVE_BYTES]){
     WORD(r->incident_rng);BYTE(r->event_remaining);BYTE(r->incident_driver);BYTE(r->incident_serial);BYTE(r->incident_pending);
     WORD(r->battle_rng);
     for(unsigned i=0;i<2;i++){BYTE(r->battle[i].result);BYTE(r->battle[i].opponent);BYTE(r->battle[i].lap);}
+    n=640;BYTE(r->mode);BYTE(r->controlled_slot);BYTE(w->incomplete_history);
+    for(unsigned t=0;t<GP_TRACK_COUNT;t++)for(unsigned k=0;k<2;k++){
+        BYTE(w->results[t][k].recorded);
+        for(unsigned p=0;p<GP_DRIVER_COUNT;p++)BYTE(w->results[t][k].finish[p]);
+    }
 #undef BYTE
 #undef WORD
     put32(out+GP_SAVE_BYTES-4,crc32(out,GP_SAVE_BYTES-4));return true;
 }
-GpSaveStatus gp_save_decode(const uint8_t* data,size_t len,GpSavedGame* out){
-    if((len!=GP_SAVE_BYTES&&len!=384u)||memcmp(data,"GPM6",4))return GpSaveCorrupt;
+static GpSaveStatus decode_into(const uint8_t* data,size_t len,GpSavedGame* out){
+    if((len!=GP_SAVE_BYTES&&len!=640u&&len!=384u)||memcmp(data,"GPM6",4))return GpSaveCorrupt;
     if(get32(data+len-4)!=crc32(data,len-4))return GpSaveCorrupt;
     uint32_t version=get32(data+4);
-    if(version!=1u&&version!=2u&&version!=3u&&version!=4u&&version!=5u&&version!=SAVE_VERSION)return GpSaveVersion;
-    if((version==1u&&len!=384u)||(version>=2u&&len!=GP_SAVE_BYTES))return GpSaveCorrupt;
-    GpSavedGame s={0};s.sequence=get32(data+8);GpRace* r=&s.race;size_t n=12;
+    if(version!=1u&&version!=2u&&version!=3u&&version!=4u&&version!=5u&&version!=6u&&version!=SAVE_VERSION)return GpSaveVersion;
+    if((version==1u&&len!=384u)||(version>=2u&&version<=6u&&len!=640u)||(version>=7u&&len!=GP_SAVE_BYTES))return GpSaveCorrupt;
+    GpSavedGame* s=out;s->sequence=get32(data+8);GpRace* r=&s->race;size_t n=12;
 #define BYTE() data[n++]
 #define WORD(x) do{(x)=get32(data+n);n+=4;}while(0)
     r->team=BYTE();r->track=BYTE();r->active_slot=BYTE();r->lap=BYTE();r->total_laps=BYTE();
@@ -106,13 +114,13 @@ GpSaveStatus gp_save_decode(const uint8_t* data,size_t len,GpSavedGame* out){
     for(unsigned i=0;i<2;i++){
         r->pace[i]=BYTE();r->pit_tyres[i]=BYTE();uint8_t flag=BYTE();if(flag>1)return GpSaveCorrupt;r->pit_queued[i]=flag;
     }
-    s.clock.speed_index=BYTE();uint8_t flag=BYTE();if(flag>1)return GpSaveCorrupt;s.clock.paused=flag;WORD(s.clock.progress_ticks);
+    s->clock.speed_index=BYTE();uint8_t flag=BYTE();if(flag>1)return GpSaveCorrupt;s->clock.paused=flag;WORD(s->clock.progress_ticks);
     for(unsigned i=0;i<GP_DRIVER_COUNT;i++){
         GpDriver* d=&r->drivers[i];d->driver_index=i;d->wear=BYTE();d->wear_fraction=BYTE();d->tyre=BYTE();d->pits=BYTE();WORD(d->time_ms);WORD(d->last_lap_ms);
     }
     for(unsigned i=0;i<GP_DRIVER_COUNT;i++)r->ranking[i]=BYTE();
     if(version>=2u){
-        GpWeekend* w=&s.weekend;uint8_t active=BYTE();if(active>1)return GpSaveCorrupt;w->active=active;
+        GpWeekend* w=&s->weekend;uint8_t active=BYTE();if(active>1)return GpSaveCorrupt;w->active=active;
         if(w->active){
             uint8_t full=BYTE();if(full>1)return GpSaveCorrupt;w->full_distance=full;
             w->rounds_done=BYTE();w->stage=BYTE();w->phase=BYTE();WORD(w->sprint_mask);
@@ -125,14 +133,14 @@ GpSaveStatus gp_save_decode(const uint8_t* data,size_t len,GpSavedGame* out){
     }
     if(version>=3u){
         for(;n<512;n++)if(data[n])return GpSaveCorrupt;
-        GpWeather* weather[2]={&s.race.weather,&s.weekend.qualifying.weather};
+        GpWeather* weather[2]={&s->race.weather,&s->weekend.qualifying.weather};
         for(unsigned i=0;i<2;i++){
             GpWeather* v=weather[i];v->wetness=BYTE();v->rain=BYTE();v->forecast=BYTE();v->remaining=BYTE();WORD(v->rng);
         }
     }
     if(version>=4u){
         for(unsigned i=0;i<GP_DRIVER_COUNT;i++)r->drivers[i].temperature=BYTE();
-        for(unsigned i=0;i<GP_DRIVER_COUNT;i++)s.weekend.qualifying.temperature[i]=BYTE();
+        for(unsigned i=0;i<GP_DRIVER_COUNT;i++)s->weekend.qualifying.temperature[i]=BYTE();
     }else{
         /* Old sessions did not model heat: start them in the working window. */
         for(unsigned i=0;i<GP_DRIVER_COUNT;i++)r->drivers[i].temperature=gp_tyre_optimal(r->drivers[i].tyre);
@@ -150,22 +158,36 @@ GpSaveStatus gp_save_decode(const uint8_t* data,size_t len,GpSavedGame* out){
         WORD(r->battle_rng);
         for(unsigned i=0;i<2;i++){r->battle[i].result=BYTE();r->battle[i].opponent=BYTE();r->battle[i].lap=BYTE();}
     }
+    if(version>=7u){
+        for(;n<640;n++)if(data[n])return GpSaveCorrupt;
+        r->mode=BYTE();r->controlled_slot=BYTE();uint8_t flag=BYTE();if(flag>1)return GpSaveCorrupt;s->weekend.incomplete_history=flag;
+        for(unsigned t=0;t<GP_TRACK_COUNT;t++)for(unsigned k=0;k<2;k++){
+            uint8_t recorded=BYTE();if(recorded>1)return GpSaveCorrupt;s->weekend.results[t][k].recorded=recorded;
+            for(unsigned p=0;p<GP_DRIVER_COUNT;p++)s->weekend.results[t][k].finish[p]=BYTE();
+        }
+        s->weekend.qualifying.mode=r->mode;s->weekend.qualifying.controlled_slot=r->controlled_slot;
+    }else if(s->weekend.active){
+        s->weekend.incomplete_history=s->weekend.rounds_done>0||
+            (gp_weekend_sprint(&s->weekend,r->track)&&s->weekend.stage>GpStageSprint);
+    }
 #undef BYTE
 #undef WORD
     for(;n<len-4;n++)if(data[n])return GpSaveCorrupt;
     r->player=r->team*2+r->active_slot;
-    if(!valid(&s))return GpSaveCorrupt;
-    *out=s;return GpSaveOk;
+    if(!valid(s))return GpSaveCorrupt;
+    gp_championship_rebuild(&s->weekend);return GpSaveOk;
+}
+GpSaveStatus gp_save_decode(const uint8_t* data,size_t len,GpSavedGame* out){
+    GpSavedGame* work=calloc(1,sizeof(*work));if(!work)return GpSaveIoError;
+    GpSaveStatus result=decode_into(data,len,work);if(result==GpSaveOk)*out=*work;free(work);return result;
 }
 static GpSaveStatus read_slot(const GpSaveIo* io,unsigned slot,GpSavedGame* out){
-    uint8_t data[GP_SAVE_BYTES];size_t n=0;
-    GpIoResult r=io->read(io->context,slot,data,sizeof(data),&n);
-    if(r==GpIoMissing)return GpSaveMissing;
-    if(r!=GpIoOk)return GpSaveIoError;
-    return gp_save_decode(data,n,out);
+    uint8_t* data=malloc(GP_SAVE_BYTES);if(!data)return GpSaveIoError;size_t n=0;
+    GpIoResult r=io->read(io->context,io->profile*3+slot,data,GP_SAVE_BYTES,&n);
+    GpSaveStatus status=r==GpIoMissing?GpSaveMissing:(r!=GpIoOk?GpSaveIoError:gp_save_decode(data,n,out));
+    free(data);return status;
 }
 /* Use heap workspace: application and GUI threads have small stacks on Flipper. */
-#include <stdlib.h>
 typedef struct {GpSavedGame games[2];GpSaveStatus status[2];uint8_t data[GP_SAVE_BYTES],verify[GP_SAVE_BYTES];} Slots;
 static int newest(const Slots* s){
     bool a=s->status[0]==GpSaveOk,b=s->status[1]==GpSaveOk;
@@ -173,6 +195,7 @@ static int newest(const Slots* s){
     return a?0:(b?1:-1);
 }
 GpSaveStatus gp_save_load(const GpSaveIo* io,GpSavedGame* out){
+    if(io->profile>=GP_SAVE_PROFILES)return GpSaveIoError;
     if(!io->ready(io->context))return GpSaveNoCard;
     Slots* s=calloc(1,sizeof(*s));if(!s)return GpSaveIoError;
     for(unsigned i=0;i<2;i++)s->status[i]=read_slot(io,i,&s->games[i]);
@@ -185,6 +208,7 @@ GpSaveStatus gp_save_load(const GpSaveIo* io,GpSavedGame* out){
     free(s);return result;
 }
 GpSaveStatus gp_save_store(const GpSaveIo* io,const GpSavedGame* game){
+    if(io->profile>=GP_SAVE_PROFILES)return GpSaveIoError;
     if(!io->ready(io->context))return GpSaveNoCard;
     Slots* s=calloc(1,sizeof(*s));if(!s)return GpSaveIoError;
     for(unsigned i=0;i<2;i++)s->status[i]=read_slot(io,i,&s->games[i]);
@@ -195,12 +219,12 @@ GpSaveStatus gp_save_store(const GpSaveIo* io,const GpSavedGame* game){
     unsigned target=k>=0?(unsigned)(1-k):0;
     s->games[target]=*game;s->games[target].sequence=seq+1;
     uint8_t* data=s->data;bool ok=gp_save_encode(&s->games[target],data);
-    if(ok)ok=io->write(io->context,2,data,GP_SAVE_BYTES);
+    if(ok)ok=io->write(io->context,io->profile*3+2,data,GP_SAVE_BYTES);
     if(ok){
         GpSaveStatus status=read_slot(io,2,&s->games[target]);
         uint8_t* verify=s->verify;
         ok=status==GpSaveOk&&gp_save_encode(&s->games[target],verify)&&!memcmp(data,verify,GP_SAVE_BYTES);
     }
-    if(ok)ok=io->replace(io->context,2,target);
+    if(ok)ok=io->replace(io->context,io->profile*3+2,io->profile*3+target);
     free(s);return ok?GpSaveOk:GpSaveIoError;
 }

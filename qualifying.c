@@ -25,7 +25,7 @@ bool gp_qualifying_run(GpQualifying* q){
         if(!gp_qualifying_active(q,i))continue;
         const GpDriverInfo* d=gp_driver_info(i);
         GpTyre tyre=(GpTyre)gp_weather_tyre(&q->weather);if(tyre<GpTyreIntermediate)tyre=q->session==1?GpTyreMedium:GpTyreSoft;GpPace pace=GpPaceNormal;uint32_t used_penalty=0;
-        if(d->team==q->team){
+        if(d->team==q->team&&(q->mode==GpModeTeam||i%2==q->controlled_slot)){
             uint8_t slot=i%2;tyre=q->tyre[slot];pace=q->pace[slot];
             if(tyre==GpTyreSoft){
                 if(q->soft_used[slot]>=GP_QUAL_SOFT_SETS)

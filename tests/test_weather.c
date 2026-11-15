@@ -5,8 +5,8 @@
 static GpWeather condition(unsigned wet){return (GpWeather){wet,wet>=70?GpRainHeavy:(wet>=25?GpRainLight:GpRainNone),GpRainNone,3,123};}
 static void same(const GpSavedGame* a,const GpSavedGame* b){uint8_t x[GP_SAVE_BYTES],y[GP_SAVE_BYTES];assert(gp_save_encode(a,x));assert(gp_save_encode(b,y));assert(!memcmp(x,y,sizeof(x)));}
 static void checksum(uint8_t* b){
-    uint32_t crc=UINT32_MAX;for(unsigned i=0;i<GP_SAVE_BYTES-4;i++){crc^=b[i];for(int bit=0;bit<8;bit++)crc=(crc>>1)^((0u-(crc&1u))&0xedb88320u);}
-    crc=~crc;for(unsigned i=0;i<4;i++)b[GP_SAVE_BYTES-4+i]=(uint8_t)(crc>>(8*i));
+    uint32_t crc=UINT32_MAX;for(unsigned i=0;i<(b[4]<7?640u:GP_SAVE_BYTES)-4;i++){crc^=b[i];for(int bit=0;bit<8;bit++)crc=(crc>>1)^((0u-(crc&1u))&0xedb88320u);}
+    crc=~crc;for(unsigned i=0;i<4;i++)b[(b[4]<7?640u:GP_SAVE_BYTES)-4+i]=(uint8_t)(crc>>(8*i));
 }
 int main(void){
     for(unsigned seed=0;seed<1000;seed++){
@@ -31,7 +31,7 @@ int main(void){
         for(unsigned tyre=0;tyre<GpTyreCount;tyre++){
             GpSavedGame a={0},b={0};gp_race_start(&a.race,0,0,0,234);a.race.battle_rng=0;a.race.incident_rng=0;a.race.weather=w;
             for(unsigned slot=0;slot<2;slot++){a.race.pit_queued[slot]=true;a.race.pit_tyres[slot]=tyre;}
-            uint8_t bytes[GP_SAVE_BYTES];assert(gp_save_encode(&a,bytes));assert(gp_save_decode(bytes,sizeof(bytes),&b)==GpSaveOk);same(&a,&b);
+            uint8_t bytes[GP_SAVE_BYTES];assert(gp_save_encode(&a,bytes));assert(gp_save_decode(bytes,(bytes[4]<7?640u:sizeof(bytes)),&b)==GpSaveOk);same(&a,&b);
             gp_advance_lap(&a.race);gp_advance_lap(&b.race);same(&a,&b);
             assert(a.race.drivers[0].tyre==tyre&&a.race.drivers[1].tyre==tyre);
             GpQualifying q,dry;gp_qualifying_start(&q,0,0,234);q.weather=w;q.tyre[0]=tyre;dry=q;dry.tyre[0]=(GpTyre)good;
@@ -60,7 +60,7 @@ int main(void){
     GpSavedGame a={0},b={0};gp_race_start(&a.race,0,0,0,123);a.race.battle_rng=0;a.race.incident_rng=0;gp_weekend_start(&a.weekend,false,1);
     a.weekend.stage=GpStageFP1;a.weekend.phase=GpWeekendQualSetup;
     gp_qualifying_start(&a.weekend.qualifying,0,0,321);a.weekend.qualifying.weather=condition(80);a.race.weather=a.weekend.qualifying.weather;
-    uint8_t bytes[GP_SAVE_BYTES];assert(gp_save_encode(&a,bytes));assert(gp_save_decode(bytes,sizeof(bytes),&b)==GpSaveOk);same(&a,&b);
+    uint8_t bytes[GP_SAVE_BYTES];assert(gp_save_encode(&a,bytes));assert(gp_save_decode(bytes,(bytes[4]<7?640u:sizeof(bytes)),&b)==GpSaveOk);same(&a,&b);
     gp_qualifying_run(&a.weekend.qualifying);gp_qualifying_run(&b.weekend.qualifying);a.weekend.phase=b.weekend.phase=GpWeekendQualResult;same(&a,&b);
     assert(gp_save_encode(&a,bytes));
     for(unsigned offset=512;offset<528;offset++){
@@ -70,7 +70,7 @@ int main(void){
     }
     /* A real v2 weekend has no weather block; migrate without losing its session. */
     bytes[4]=2;memset(bytes+512,0,122);checksum(bytes);
-    assert(gp_save_decode(bytes,sizeof(bytes),&b)==GpSaveOk);
+    assert(gp_save_decode(bytes,(bytes[4]<7?640u:sizeof(bytes)),&b)==GpSaveOk);
     assert(b.weekend.phase==GpWeekendQualResult&&b.weekend.qualifying.run==a.weekend.qualifying.run);
     assert(b.race.weather.rng==0&&b.weekend.qualifying.weather.rng==0);
     assert(!memcmp(b.weekend.qualifying.grid,a.weekend.qualifying.grid,GP_DRIVER_COUNT));

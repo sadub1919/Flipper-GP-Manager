@@ -10,6 +10,7 @@
 #define GP_TRACK_COUNT 23
 #define GP_TOTAL_LAPS 12 /* short distance */
 
+typedef enum {GpModeTeam=0,GpModeDriver=1} GpMode;
 typedef enum {GpTyreSoft=0,GpTyreMedium=1,GpTyreHard=2,GpTyreIntermediate=3,GpTyreWet=4,GpTyreCount=5} GpTyre;
 typedef enum {GpPaceConserve=0,GpPaceNormal=1,GpPaceAttack=2} GpPace;
 typedef enum {GpEventNone=0,GpEventYellow=1,GpEventVsc=2,GpEventSafetyCar=3,GpEventRed=4} GpEvent;
@@ -57,6 +58,8 @@ typedef struct {
     uint8_t result,opponent,lap;
 } GpBattleReport;
 typedef struct {
+    GpMode mode;
+    uint8_t controlled_slot;
     GpDriver drivers[GP_DRIVER_COUNT];
     uint8_t ranking[GP_DRIVER_COUNT];
     uint8_t lap;
@@ -88,6 +91,8 @@ const char* gp_pace_name(GpPace pace);
 const char* gp_tyre_name(GpTyre tyre);
 const char* gp_event_name(GpEvent event);
 void gp_race_start(GpRace* race,uint8_t team,uint8_t driver_slot,uint8_t track,uint32_t seed);
+bool gp_driver_controlled(const GpRace*,uint8_t id);
+void gp_race_set_mode(GpRace*,GpMode,uint8_t slot);
 void gp_select_driver(GpRace* race,uint8_t slot);
 void gp_race_apply_grid(GpRace* race,const uint8_t grid[GP_DRIVER_COUNT]);
 void gp_advance_lap(GpRace* race);

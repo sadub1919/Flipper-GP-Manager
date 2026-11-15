@@ -82,7 +82,7 @@ int main(void){
         }
         a.screen=ScreenResults;render(&a);
     }
-    for(uint8_t help_page=0;help_page<17;++help_page){a.screen=ScreenHelp;a.help_page=help_page;render(&a);}
+    for(uint8_t help_page=0;help_page<19;++help_page){a.screen=ScreenHelp;a.help_page=help_page;render(&a);}
     a.screen=ScreenMap;event(&a,InputKeyLeft,InputTypeShort);assert(a.screen==ScreenStrategy);render(&a);
     event(&a,InputKeyRight,InputTypeShort);assert(a.screen==ScreenMap);render(&a);
     event(&a,InputKeyOk,InputTypeShort);assert(a.clock.paused);
@@ -151,11 +151,11 @@ int main(void){
     event(&a,InputKeyOk,InputTypeShort);assert(a.race.pit_queued[slot]!=pit);
     event(&a,InputKeyOk,InputTypeShort);assert(a.race.pit_queued[slot]==pit);
     a.screen=ScreenMain;
-    for(int i=0;i<5;i++){a.menu_item=i;render(&a);}
+    for(int i=0;i<6;i++){a.menu_item=i;render(&a);}
     a.menu_item=3;event(&a,InputKeyOk,InputTypeShort);assert(a.screen==ScreenHelp);
     event(&a,InputKeyOk,InputTypeShort);assert(a.screen==ScreenMain);
-    a.menu_item=2;event(&a,InputKeyOk,InputTypeShort);assert(a.screen==ScreenTeam);
-    event(&a,InputKeyBack,InputTypeShort);assert(a.screen==ScreenMain);
+    a.menu_item=2;event(&a,InputKeyOk,InputTypeShort);assert(a.screen==ScreenRole);event(&a,InputKeyOk,InputTypeShort);assert(a.screen==ScreenTeam);
+    event(&a,InputKeyBack,InputTypeShort);assert(a.screen==ScreenRole);event(&a,InputKeyBack,InputTypeShort);assert(a.screen==ScreenMain);
     a.menu_item=4;event(&a,InputKeyOk,InputTypeShort);assert(!a.running);
     a.race.lap=12;
     for(int i=0;i<GP_DRIVER_COUNT;i++){a.race.ranking[i]=i;a.race.drivers[i].time_ms=i*1000000u;}
@@ -284,5 +284,42 @@ int main(void){
     a.race.lap=1;for(unsigned i=2;i<GP_DRIVER_COUNT;i++)assert(gp_retire_driver(&a.race,i,GpDriverFailure));
     gp_select_driver(&a.race,1);render(&a); // no following active rival
     event(&a,InputKeyBack,InputTypeShort);assert(a.screen==ScreenMap);
+    a=(GpApp){0};gp_race_start(&a.race,0,0,0,123);gp_weekend_start(&a.weekend,false,123);
+    for(unsigned mode=0;mode<2;mode++){a.chosen_mode=mode;a.screen=ScreenRole;render(&a);}
+    for(unsigned slot=0;slot<GP_SAVE_PROFILES;slot++){a.screen=ScreenSlots;a.slot_choice=slot;render(&a);}
+    for(unsigned track=0;track<GP_TRACK_COUNT;track++)for(unsigned kind=0;kind<2;kind++){
+        a.history_track=track;a.history_sprint=kind;a.screen=ScreenHistory;render(&a);
+        a.screen=ScreenHistoryResult;render(&a);
+        GpRoundResult* result=&a.weekend.results[track][kind];result->recorded=true;
+        for(unsigned id=0;id<GP_DRIVER_COUNT;id++)result->finish[id]=id|(id==21?128:0);
+        for(unsigned top=0;top<=19;top++){a.standings_top=top;render(&a);}
+    }
+    gp_championship_rebuild(&a.weekend);
+    for(unsigned partial=0;partial<2;partial++){
+        a.weekend.incomplete_history=partial;a.screen=ScreenChampions;render(&a);
+        a.screen=ScreenChampionship;
+        for(unsigned teams=0;teams<2;teams++){
+            a.championship_teams=teams;
+            for(unsigned top=0;top<(teams?9u:20u);top++){a.standings_top=top;render(&a);}
+        }
+    }
+    memset(&gp_test_fs,0,sizeof(gp_test_fs));a=(GpApp){0};a.storage=gp_storage_open();
+    for(unsigned slot=0;slot<GP_SAVE_PROFILES;slot++){
+        a.screen=ScreenMain;a.menu_item=5;event(&a,InputKeyOk,InputTypeShort);assert(a.screen==ScreenSlots);
+        a.slot_choice=slot;event(&a,InputKeyOk,InputTypeShort);assert(a.storage.profile==slot&&a.screen==ScreenMain);
+        a.menu_item=1;event(&a,InputKeyOk,InputTypeShort);assert(a.screen==ScreenRole);
+        event(&a,InputKeyDown,InputTypeShort);event(&a,InputKeyOk,InputTypeShort);a.preferred_driver=slot%2;
+        event(&a,InputKeyOk,InputTypeShort);a.chosen_track=slot;event(&a,InputKeyOk,InputTypeShort);
+        event(&a,InputKeyOk,InputTypeShort);event(&a,InputKeyOk,InputTypeShort);process_storage(&a);
+        assert(a.save_status==GpSaveOk&&a.screen==ScreenWeekend&&a.race.mode==GpModeDriver);
+        event(&a,InputKeyOk,InputTypeShort);assert(a.screen==ScreenQualifying);
+        event(&a,InputKeyOk,InputTypeLong);assert(a.preferred_driver==slot%2);render(&a);
+        process_storage(&a);assert(a.save_status==GpSaveOk);
+    }
+    for(unsigned slot=0;slot<GP_SAVE_PROFILES;slot++){
+        a.screen=ScreenMain;a.menu_item=5;event(&a,InputKeyOk,InputTypeShort);a.slot_choice=slot;event(&a,InputKeyOk,InputTypeShort);
+        event(&a,InputKeyOk,InputTypeShort);process_storage(&a);
+        assert(a.save_status==GpSaveOk&&a.screen==ScreenQualifying&&a.race.track==slot&&a.preferred_driver==slot%2&&a.qualifying.mode==GpModeDriver);
+    }
     printf("PASS: %d UI frames, %d text labels, zero overlaps/offscreen text; left navigation, qualification flow\n",frames,checked_labels);
 }

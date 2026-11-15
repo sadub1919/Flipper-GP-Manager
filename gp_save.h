@@ -4,7 +4,8 @@
 #include "race_engine.h"
 #include "race_clock.h"
 #include "weekend.h"
-#define GP_SAVE_BYTES 640u
+#define GP_SAVE_BYTES 2048u
+#define GP_SAVE_PROFILES 3u
 #define GP_LAP_MS 6000u
 /* The persisted clock uses milliseconds, not platform-specific Furi ticks. */
 typedef struct { GpRace race; GpRaceClock clock; uint32_t sequence; GpWeekend weekend; } GpSavedGame;
@@ -21,6 +22,7 @@ typedef struct {
     GpIoResult (*read)(void*,unsigned,uint8_t*,size_t,size_t*);
     bool (*write)(void*,unsigned,const uint8_t*,size_t);
     bool (*replace)(void*,unsigned,unsigned);
+    uint8_t profile; /* independent user slot; each has three generation files */
 } GpSaveIo;
 bool gp_save_encode(const GpSavedGame*,uint8_t out[GP_SAVE_BYTES]);
 GpSaveStatus gp_save_decode(const uint8_t*,size_t,GpSavedGame*);

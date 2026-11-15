@@ -30,3 +30,16 @@ with tempfile.TemporaryDirectory(prefix='gp-gui-stack-') as folder:
     chain=sum(frames[name] for name in ('draw_cb','draw_circuit','circuit_segment_length'))
     if chain>512:raise SystemExit(f'GUI render chain budget exceeded: {chain} > 512')
     print(f'PASS ARM GUI stack: draw_cb={frames["draw_cb"]}, draw_circuit={frames["draw_circuit"]}, segment={frames["circuit_segment_length"]}; measured app render frames={chain} bytes (budget 512; firmware callers excluded)')
+
+# Larger season archives must never become automatic variables in save paths.
+with tempfile.TemporaryDirectory(prefix='gp-save-stack-') as folder:
+    for filename in ('gp_save.c','weekend.c'):
+        entry=next(e for e in entries if Path(e['file']).name==filename)
+        target=Path(folder)/(filename+'.o')
+        args=shlex.split(entry['command']);args[args.index('-o')+1]=str(target);args.append('-fstack-usage')
+        subprocess.run(args,cwd=entry.get('directory',str(root)),check=True)
+        maximum=0
+        for line in target.with_suffix('.su').read_text().splitlines():
+            name,size,kind=line.split('\t');maximum=max(maximum,int(size))
+            if kind!='static' or int(size)>192:raise SystemExit(f'Storage/championship stack budget exceeded: {line}')
+        print(f'PASS ARM {filename}: largest app frame {maximum} bytes (budget 192, callees excluded)')

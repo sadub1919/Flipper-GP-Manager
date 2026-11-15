@@ -24,9 +24,9 @@ int main(void){
         assert(n==6);if(mask!=first)differs=true;
     }
     assert(differs);for(unsigned i=0;i<GP_TRACK_COUNT;i++)assert(appearances[i]>0);
-    for(int full=0;full<2;full++){
+    for(int full=0;full<2;full++)for(int mode=GpModeTeam;mode<=GpModeDriver;mode++){
         memset(&gp_test_fs,0,sizeof(gp_test_fs));GpApp a={0};a.storage=gp_storage_open();a.screen=ScreenMain;a.menu_item=1;
-        press(&a,InputKeyOk);assert(a.screen==ScreenTeam&&a.new_weekend);
+        press(&a,InputKeyOk);assert(a.screen==ScreenRole);if(mode==GpModeDriver)press(&a,InputKeyDown);press(&a,InputKeyOk);assert(a.screen==ScreenTeam&&a.new_weekend);if(mode==GpModeDriver)press(&a,InputKeyUp);
         press(&a,InputKeyOk);assert(a.screen==ScreenTrack);a.chosen_track=5;
         press(&a,InputKeyOk);assert(a.screen==ScreenDistance);a.full_distance=full;
         press(&a,InputKeyOk);assert(a.screen==ScreenWeekendReplace);
@@ -35,7 +35,7 @@ int main(void){
         /* Starting another mode must not overwrite the existing weekend. */
         GpApp navigation=a;navigation.screen=ScreenMain;navigation.menu_item=2;press(&navigation,InputKeyOk);assert(!navigation.save_requested);
         for(unsigned steps=0;a.weekend.stage!=GpStageDone;steps++){
-            assert(steps<10000&&a.weekend.sprint_mask==mask);
+            assert(steps<10000&&a.weekend.sprint_mask==mask);assert(a.race.mode==(GpMode)mode);if(mode==GpModeDriver)assert(a.race.active_slot==1);
             switch(a.screen){
             case ScreenWeekend:
                 if(a.weekend.stage<=GpStageFP3)practice++;
@@ -60,6 +60,11 @@ int main(void){
         }
         assert(a.weekend.rounds_done==23&&races==23&&sprints==6&&practice==57&&qual==29);
         assert(a.screen==ScreenWeekend);
+        unsigned archived=0;for(unsigned t=0;t<GP_TRACK_COUNT;t++)for(unsigned k=0;k<2;k++)archived+=a.weekend.results[t][k].recorded;
+        assert(archived==29);uint16_t total=0;for(unsigned t=0;t<GP_TEAM_COUNT;t++)total+=a.weekend.team_points[t];assert(total>0);
+        press(&a,InputKeyRight);assert(a.screen==ScreenChampionship);press(&a,InputKeyRight);assert(a.championship_teams);press(&a,InputKeyBack);
+        press(&a,InputKeyUp);assert(a.screen==ScreenHistory);press(&a,InputKeyOk);assert(a.screen==ScreenHistoryResult);press(&a,InputKeyBack);press(&a,InputKeyBack);
+        press(&a,InputKeyOk);assert(a.screen==ScreenChampions);press(&a,InputKeyBack);
         /* Save and exit / missing SD use the same guarded pause path. */
         press(&a,InputKeyBack);assert(a.screen==ScreenPause);press(&a,InputKeyDown);
         gp_test_fs.no_card=true;press(&a,InputKeyOk);process_storage(&a);
@@ -68,5 +73,5 @@ int main(void){
         press(&a,InputKeyOk);process_storage(&a);assert(a.screen==ScreenMain&&a.save_status==GpSaveOk);
         press(&a,InputKeyOk);process_storage(&a);assert(a.screen==ScreenWeekend&&a.weekend.stage==GpStageDone);
     }
-    printf("PASS: 10000 six-sprint calendars; two complete 23-round seasons, 57 practices/29 qualifying sessions/29 races each; %u save/reload checkpoints\n",checkpoints);
+    printf("PASS: 10000 six-sprint calendars; four complete 23-round seasons, team/driver modes, 57 practices/29 qualifying sessions/29 races each; %u save/reload checkpoints\n",checkpoints);
 }

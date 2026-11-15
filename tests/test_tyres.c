@@ -4,8 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 static void checksum(uint8_t* b){
-    uint32_t crc=UINT32_MAX;for(unsigned i=0;i<GP_SAVE_BYTES-4;i++){crc^=b[i];for(int j=0;j<8;j++)crc=(crc>>1)^((0u-(crc&1))&0xedb88320u);}
-    crc=~crc;for(int i=0;i<4;i++)b[GP_SAVE_BYTES-4+i]=(uint8_t)(crc>>(8*i));
+    uint32_t crc=UINT32_MAX;for(unsigned i=0;i<(b[4]<7?640u:GP_SAVE_BYTES)-4;i++){crc^=b[i];for(int j=0;j<8;j++)crc=(crc>>1)^((0u-(crc&1))&0xedb88320u);}
+    crc=~crc;for(int i=0;i<4;i++)b[(b[4]<7?640u:GP_SAVE_BYTES)-4+i]=(uint8_t)(crc>>(8*i));
 }
 static GpRace scenario(unsigned seed,unsigned wear,GpTyre tyre){
     GpRace r;gp_race_start(&r,0,1,0,seed);r.battle_rng=0;r.incident_rng=0;r.weather=(GpWeather){0};r.lap=3;
@@ -67,14 +67,14 @@ int main(void){
     for(unsigned tyre=0;tyre<5;tyre++)for(unsigned temperature=20;temperature<=140;temperature+=10){
         GpSavedGame a={0},b={0};gp_race_start(&a.race,0,0,0,123);a.race.battle_rng=0;a.race.incident_rng=0;
         for(unsigned i=0;i<22;i++){a.race.drivers[i].tyre=tyre;a.race.drivers[i].temperature=temperature;}
-        uint8_t bytes[GP_SAVE_BYTES],other[GP_SAVE_BYTES];assert(gp_save_encode(&a,bytes));assert(gp_save_decode(bytes,sizeof(bytes),&b)==GpSaveOk);
+        uint8_t bytes[GP_SAVE_BYTES],other[GP_SAVE_BYTES];assert(gp_save_encode(&a,bytes));assert(gp_save_decode(bytes,(bytes[4]<7?640u:sizeof(bytes)),&b)==GpSaveOk);
         gp_advance_lap(&a.race);gp_advance_lap(&b.race);assert(gp_save_encode(&a,bytes)&&gp_save_encode(&b,other));assert(!memcmp(bytes,other,sizeof(bytes)));
         for(unsigned offset=528;offset<550;offset++){
             memcpy(other,bytes,sizeof(bytes));other[offset]=0;checksum(other);assert(gp_save_decode(other,sizeof(other),&b)==GpSaveCorrupt);
             other[offset]=141;checksum(other);assert(gp_save_decode(other,sizeof(other),&b)==GpSaveCorrupt);
         }
         // Version 3 migration: existing race starts with tyres in their working window.
-        bytes[4]=3;memset(bytes+528,0,106);checksum(bytes);assert(gp_save_decode(bytes,sizeof(bytes),&b)==GpSaveOk);
+        bytes[4]=3;memset(bytes+528,0,106);checksum(bytes);assert(gp_save_decode(bytes,(bytes[4]<7?640u:sizeof(bytes)),&b)==GpSaveOk);
         for(unsigned i=0;i<22;i++)assert(b.race.drivers[i].temperature==gp_tyre_optimal(b.race.drivers[i].tyre));
     }
     GpSavedGame a={0},b={0};gp_race_start(&a.race,0,0,0,123);a.race.battle_rng=0;a.race.incident_rng=0;gp_weekend_start(&a.weekend,false,1);
@@ -82,8 +82,8 @@ int main(void){
     GpQualifying* q=&a.weekend.qualifying;gp_qualifying_start(q,0,0,123);q->weather=(GpWeather){0};q->tyre[0]=GpTyreSoft;
     gp_qualifying_run(q);uint32_t best=q->lap_ms[0];uint8_t best_temp=q->temperature[0];q->tyre[0]=GpTyreHard;
     gp_qualifying_run(q);assert(q->lap_ms[0]==best&&q->temperature[0]==best_temp);
-    uint8_t bytes[GP_SAVE_BYTES];assert(gp_save_encode(&a,bytes));assert(gp_save_decode(bytes,sizeof(bytes),&b)==GpSaveOk);
+    uint8_t bytes[GP_SAVE_BYTES];assert(gp_save_encode(&a,bytes));assert(gp_save_decode(bytes,(bytes[4]<7?640u:sizeof(bytes)),&b)==GpSaveOk);
     assert(!memcmp(q->temperature,b.weekend.qualifying.temperature,sizeof(q->temperature)));
-    bytes[550]=141;checksum(bytes);assert(gp_save_decode(bytes,sizeof(bytes),&b)==GpSaveCorrupt);
+    bytes[550]=141;checksum(bytes);assert(gp_save_decode(bytes,(bytes[4]<7?640u:sizeof(bytes)),&b)==GpSaveCorrupt);
     printf("PASS: %u thermal combinations; cold outlaps, overheating/cooling, traffic snapshot, v3 migration and temperature saves; %u/100 undercuts and %u/100 overcuts gain a position\n",combinations,undercuts,overcuts);
 }
