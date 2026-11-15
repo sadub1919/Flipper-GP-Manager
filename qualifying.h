@@ -5,6 +5,8 @@
 #define GP_QUAL_SOFT_SETS 4
 /* Two managed attempts per session; eliminated positions are frozen. */
 typedef struct {
+    GpMode mode;
+    uint8_t controlled_slot;
     uint8_t grid[GP_DRIVER_COUNT];
     uint32_t lap_ms[GP_DRIVER_COUNT];
     uint8_t track, team, session, run, active_count;

@@ -2,7 +2,7 @@
 #include <storage/storage.h>
 #include "gp_storage.h"
 #define SAVE_DIR EXT_PATH("apps_data/flipper_gp_manager")
-static const char* paths[]={SAVE_DIR "/race.sav",SAVE_DIR "/race.bak",SAVE_DIR "/race.tmp"};
+static const char* paths[]={SAVE_DIR "/race.sav",SAVE_DIR "/race.bak",SAVE_DIR "/race.tmp",SAVE_DIR "/slot2.sav",SAVE_DIR "/slot2.bak",SAVE_DIR "/slot2.tmp",SAVE_DIR "/slot3.sav",SAVE_DIR "/slot3.bak",SAVE_DIR "/slot3.tmp"};
 static bool ready(void* context){return storage_sd_status(context)==FSE_OK;}
 static GpIoResult read_data(void* context,unsigned slot,uint8_t* out,size_t capacity,size_t* length){
     Storage* storage=context;
@@ -27,5 +27,5 @@ static bool write_data(void* context,unsigned slot,const uint8_t* data,size_t le
     bool closed=storage_file_close(file);storage_file_free(file);return ok&&closed;
 }
 static bool replace(void* context,unsigned from,unsigned to){return storage_common_rename(context,paths[from],paths[to])==FSE_OK;}
-GpSaveIo gp_storage_open(void){return (GpSaveIo){furi_record_open(RECORD_STORAGE),ready,read_data,write_data,replace};}
+GpSaveIo gp_storage_open(void){return (GpSaveIo){furi_record_open(RECORD_STORAGE),ready,read_data,write_data,replace,0};}
 void gp_storage_close(GpSaveIo* io){furi_record_close(RECORD_STORAGE);io->context=NULL;}

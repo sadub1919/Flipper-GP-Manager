@@ -17,8 +17,8 @@ static void roundtrip(GpRace* r){
     assert(gp_save_encode(&a,x)&&gp_save_encode(&b,y)&&!memcmp(x,y,sizeof(x)));
 }
 static void checksum(uint8_t* b){
-    uint32_t crc=UINT32_MAX;for(unsigned i=0;i<GP_SAVE_BYTES-4;i++){crc^=b[i];for(int j=0;j<8;j++)crc=(crc>>1)^((0u-(crc&1))&0xedb88320u);}
-    crc=~crc;for(unsigned i=0;i<4;i++)b[GP_SAVE_BYTES-4+i]=(uint8_t)(crc>>(8*i));
+    uint32_t crc=UINT32_MAX;for(unsigned i=0;i<(b[4]<7?640u:GP_SAVE_BYTES)-4;i++){crc^=b[i];for(int j=0;j<8;j++)crc=(crc>>1)^((0u-(crc&1))&0xedb88320u);}
+    crc=~crc;for(unsigned i=0;i<4;i++)b[(b[4]<7?640u:GP_SAVE_BYTES)-4+i]=(uint8_t)(crc>>(8*i));
 }
 int main(void){
     GpRace r=fixture();r.pit_queued[0]=true;
@@ -55,9 +55,9 @@ int main(void){
     GpSavedGame a={0},b={0};a.race=fixture();uint8_t bytes[GP_SAVE_BYTES],bad[GP_SAVE_BYTES];assert(gp_save_encode(&a,bytes));
     unsigned offsets[]={572,573,620,621,622,623};
     for(unsigned i=0;i<sizeof(offsets)/sizeof(offsets[0]);i++){
-        memcpy(bad,bytes,sizeof(bad));bad[offsets[i]]=255;checksum(bad);assert(gp_save_decode(bad,sizeof(bad),&b)==GpSaveCorrupt);
+        memcpy(bad,bytes,sizeof(bad));bad[offsets[i]]=255;checksum(bad);assert(gp_save_decode(bad,(bad[4]<7?640u:sizeof(bad)),&b)==GpSaveCorrupt);
     }
-    bytes[4]=4;memset(bytes+572,0,62);checksum(bytes);assert(gp_save_decode(bytes,sizeof(bytes),&b)==GpSaveOk);
+    bytes[4]=4;memset(bytes+572,0,62);checksum(bytes);assert(gp_save_decode(bytes,(bytes[4]<7?640u:sizeof(bytes)),&b)==GpSaveOk);
     assert(!b.race.incident_rng&&b.race.incident_driver==GP_DRIVER_COUNT&&gp_running_count(&b.race)==GP_DRIVER_COUNT);
     unsigned crashes=0,failures=0,reds=0,sc=0,vsc=0;
     for(unsigned seed=1;seed<=3000;seed++){

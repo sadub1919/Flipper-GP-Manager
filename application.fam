@@ -7,6 +7,6 @@ App(
     stack_size=4 * 1024,
     fap_category="Games",
     fap_icon="icon.png",
-    fap_version="0.7.3",
-    fap_description="GP Manager 0.7.3: On-track battles, circuit passing opportunities, adaptive rivals and engineer reports",
+    fap_version="0.8.0",
+    fap_description="GP Manager 0.8.0: Championship, driver/team modes, standings, race history and three save slots",
 )

@@ -16,7 +16,7 @@ uint32_t gp_sprint_calendar(uint32_t seed){
 }
 bool gp_weekend_sprint(const GpWeekend* w,uint8_t track){return track<GP_TRACK_COUNT&&(w->sprint_mask&(1u<<track));}
 void gp_weekend_start(GpWeekend* w,bool full,uint32_t seed){
-    memset(w,0,sizeof(*w));w->active=true;w->full_distance=full;w->sprint_mask=gp_sprint_calendar(seed);
+    memset(w,0,sizeof(*w));w->active=true;w->full_distance=full;w->sprint_mask=gp_sprint_calendar(seed);gp_championship_rebuild(w);
 }
 bool gp_weekend_next(GpWeekend* w,uint8_t track){
     if(!w->active||w->phase!=GpWeekendResult||w->stage==GpStageDone)return false;
@@ -37,8 +37,64 @@ const char* gp_stage_name(GpStage s){
     static const char* const names[]={"FP1","FP2","FP3","КВАЛА СПРИНТА","СПРИНТ","КВАЛИФИКАЦИЯ","ГОНКА","СЕЗОН ЗАВЕРШЁН"};
     return (unsigned)s<=GpStageDone?names[s]:"?";
 }
+static unsigned finishes(const GpWeekend* w,unsigned id,unsigned position,bool team){
+    unsigned n=0;
+    for(unsigned t=0;t<GP_TRACK_COUNT;t++)if(w->results[t][0].recorded){
+        uint8_t driver=w->results[t][0].finish[position];
+        if(!(driver&128)&&(team?driver/2:driver)==id)n++;
+    }
+    return n;
+}
+static bool championship_ahead(const GpWeekend* w,unsigned a,unsigned b,bool team){
+    const uint16_t* points=team?w->team_points:w->driver_points;
+    if(points[a]!=points[b])return points[a]>points[b];
+    for(unsigned p=0;p<GP_DRIVER_COUNT;p++){
+        unsigned ac=finishes(w,a,p,team),bc=finishes(w,b,p,team);if(ac!=bc)return ac>bc;
+    }
+    return a<b; /* Fully equal records use roster order, a stable game tie-break. */
+}
+void gp_championship_rebuild(GpWeekend* w){
+    memset(w->driver_points,0,sizeof(w->driver_points));memset(w->team_points,0,sizeof(w->team_points));
+    bool any=false;
+    for(unsigned t=0;t<GP_TRACK_COUNT;t++)for(unsigned sprint=0;sprint<2;sprint++){
+        const GpRoundResult* result=&w->results[t][sprint];if(!result->recorded)continue;any=true;
+        for(unsigned p=0;p<GP_DRIVER_COUNT;p++){
+            uint8_t id=result->finish[p];if(id&128||id>=GP_DRIVER_COUNT)continue;
+            unsigned points=sprint?(p<8?8-p:0):gp_points_for_position(p+1);
+            w->driver_points[id]+=points;w->team_points[id/2]+=points;
+        }
+    }
+    for(unsigned team=0;team<2;team++){
+        uint8_t* order=team?w->team_order:w->driver_order;unsigned count=team?GP_TEAM_COUNT:GP_DRIVER_COUNT;
+        for(unsigned i=0;i<count;i++)order[i]=i;
+        if(!any)continue;
+        for(unsigned i=1;i<count;i++){
+            uint8_t id=order[i];unsigned j=i;
+            while(j&&championship_ahead(w,id,order[j-1],team)){order[j]=order[j-1];j--;}
+            order[j]=id;
+        }
+    }
+}
+bool gp_weekend_record(GpWeekend* w,const GpRace* r){
+    if(!w->active||!gp_race_finished(r)||(w->stage!=GpStageRace&&w->stage!=GpStageSprint))return false;
+    GpRoundResult* result=&w->results[r->track][w->stage==GpStageSprint];if(result->recorded)return false;
+    result->recorded=true;
+    for(unsigned i=0;i<GP_DRIVER_COUNT;i++){uint8_t id=r->ranking[i];result->finish[i]=id|(r->drivers[id].status==GpDriverRunning?0:128);}
+    gp_championship_rebuild(w);return true;
+}
 bool gp_weekend_valid(const GpWeekend* w,const GpRace* r){
-    if(!w->active)return true;
+    for(unsigned t=0;t<GP_TRACK_COUNT;t++)for(unsigned sprint=0;sprint<2;sprint++){
+        const GpRoundResult* result=&w->results[t][sprint];uint32_t seen=0;bool retired=false;
+        if(result->recorded&&(!w->active||(sprint&&!gp_weekend_sprint(w,t))))return false;
+        for(unsigned p=0;p<GP_DRIVER_COUNT;p++){
+            uint8_t value=result->finish[p],id=value&127;
+            if(!result->recorded){if(value)return false;continue;}
+            if(id>=GP_DRIVER_COUNT||(seen&(1u<<id)))return false;
+            seen|=1u<<id;
+            if(value&128)retired=true;else if(retired)return false;
+        }
+    }
+    if(!w->active)return !w->incomplete_history;
     if((unsigned)w->stage>GpStageDone||(unsigned)w->phase>GpWeekendResult||w->rounds_done>GP_TRACK_COUNT)return false;
     if((w->stage==GpStageDone)!=(w->rounds_done==GP_TRACK_COUNT))return false;
     if(w->sprint_mask>>GP_TRACK_COUNT)return false;
@@ -54,6 +110,7 @@ bool gp_weekend_valid(const GpWeekend* w,const GpRace* r){
     if(w->stage==GpStageDone&&w->phase!=GpWeekendReady)return false;
     if((qualifying||practice)&&w->phase!=GpWeekendReady){
         const GpQualifying* q=&w->qualifying;
+        if(q->mode!=r->mode||q->controlled_slot!=r->controlled_slot)return false;
         if(q->track!=r->track||q->team!=r->team||!q->rng_state||q->session<1||q->session>3||q->run>2)return false;
         if(q->active_count!=(q->session==1?22:(q->session==2?16:10)))return false;
         if(q->complete!=(q->session==3&&q->run==2))return false;

@@ -85,8 +85,10 @@ const char* gp_pace_name(GpPace p) {return p==GpPaceConserve?"SAVE":(p==GpPaceAt
 const char* gp_tyre_name(GpTyre t) {static const char* const names[]={"SOFT","MEDIUM","HARD","INTER","WET"};return (unsigned)t<GpTyreCount?names[t]:"?";}
 const char* gp_event_name(GpEvent e) {return e==GpEventRed?"RED":e==GpEventYellow?"YELLOW":(e==GpEventVsc?"VSC":(e==GpEventSafetyCar?"SAFETY CAR":"GREEN"));}
 
+bool gp_driver_controlled(const GpRace* r,uint8_t id){return id/2==r->team&&(r->mode==GpModeTeam||id%2==r->controlled_slot);}
+void gp_race_set_mode(GpRace* r,GpMode mode,uint8_t slot){r->mode=mode;r->controlled_slot=slot%2;gp_select_driver(r,slot);}
 void gp_select_driver(GpRace* race,uint8_t slot) {
-    race->active_slot=slot%2;
+    race->active_slot=race->mode==GpModeDriver?race->controlled_slot:slot%2;
     race->player=(uint8_t)(race->team*2+race->active_slot);
 }
 
@@ -183,7 +185,7 @@ bool gp_restart_race(GpRace* race){
     uint32_t leader=race->drivers[race->ranking[0]].time_ms;unsigned position=0;
     for(unsigned i=0;i<GP_DRIVER_COUNT;i++){
         GpDriver* d=&race->drivers[race->ranking[i]];if(d->status!=GpDriverRunning)continue;
-        d->tyre=d->driver_index/2==race->team?race->pit_tyres[d->driver_index%2]:(GpTyre)gp_weather_tyre(&race->weather);
+        d->tyre=gp_driver_controlled(race,d->driver_index)?race->pit_tyres[d->driver_index%2]:(GpTyre)gp_weather_tyre(&race->weather);
         d->wear=100;d->wear_fraction=0;d->temperature=gp_tyre_blanket(d->tyre);
         d->time_ms=leader+position++*700u;
     }
@@ -241,7 +243,7 @@ bool gp_pit_traffic(const GpRace* race,uint8_t driver){return pit_traffic(race,d
 GpPace gp_driver_pace(const GpRace* race,uint8_t id){
     if(id>=GP_DRIVER_COUNT||race->drivers[id].status!=GpDriverRunning)return GpPaceConserve;
     if(race->event==GpEventSafetyCar||race->event==GpEventVsc)return GpPaceConserve;
-    if(id/2==race->team)return race->pace[id%2];
+    if(gp_driver_controlled(race,id))return race->pace[id%2];
     if(!race->battle_rng||!race->lap)return GpPaceNormal;
     const GpDriver* d=&race->drivers[id];
     if(d->wear<30||gp_tyre_temperature_state(d->tyre,d->temperature)>0||gp_weather_penalty(&race->weather,d->tyre)>4500)return GpPaceConserve;
@@ -308,7 +310,7 @@ static bool gp_apply_one(GpRace* race,uint8_t index,const uint32_t previous[GP_D
     const GpTrackInfo* track=gp_track_info(race->track);
     const GpDriverInfo* info=gp_driver_info(index);
     const GpTeamInfo* team=gp_team_info(info->team);
-    bool own=info->team==race->team;
+    bool own=gp_driver_controlled(race,index);
     uint8_t slot=index%2;
     bool neutral=race->event==GpEventSafetyCar||race->event==GpEventVsc;
     if(neutral)pace=GpPaceConserve;

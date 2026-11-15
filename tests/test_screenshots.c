@@ -12,7 +12,7 @@ static void save(GpApp* a,const char* name,int variant){
 }
 int main(int argc,char** argv){
     assert(argc==2);output=argv[1];GpApp a={0};
-    a.screen=ScreenMain;for(int i=0;i<5;i++){a.menu_item=i;save(&a,"main",i);}
+    a.screen=ScreenMain;for(int i=0;i<6;i++){a.menu_item=i;save(&a,"main",i);}
     a.screen=ScreenTeam;for(int t=0;t<GP_TEAM_COUNT;t++)for(int d=0;d<2;d++){a.chosen_team=t;a.preferred_driver=d;save(&a,"team",t*2+d);}
     for(int t=0;t<GP_TRACK_COUNT;t++){
         a.chosen_track=t;a.screen=ScreenTrack;save(&a,"track",t);
@@ -60,7 +60,7 @@ int main(int argc,char** argv){
     a.screen=ScreenStandings;a.standings_top=0;save(&a,"start",0);
     a.race.lap=12;for(int i=0;i<GP_DRIVER_COUNT;i++){a.race.ranking[i]=i;a.race.drivers[i].time_ms=i*1000000u;}
     for(int screen=0;screen<2;screen++){a.screen=screen?ScreenResults:ScreenStandings;for(int top=0;top<=19;top++){a.standings_top=top;save(&a,screen?"results":"large_gap",top);}}
-    a.screen=ScreenHelp;for(int i=0;i<17;i++){a.help_page=i;save(&a,"help",i);}
+    a.screen=ScreenHelp;for(int i=0;i<19;i++){a.help_page=i;save(&a,"help",i);}
     a.screen=ScreenPause;for(int i=0;i<3;i++){a.pause_item=i;save(&a,"pause",i);}
     for(int t=0;t<GP_TRACK_COUNT;t++){
         a.chosen_track=t;a.screen=ScreenDistance;
@@ -146,5 +146,29 @@ int main(int argc,char** argv){
     save(&a,"battle_gap",0);gp_select_driver(&a.race,0);save(&a,"battle_gap",1);
     a.race.lap=1;for(unsigned i=2;i<GP_DRIVER_COUNT;i++)gp_retire_driver(&a.race,i,GpDriverFailure);
     gp_select_driver(&a.race,1);save(&a,"battle_gap",2);
+    a=(GpApp){0};gp_race_start(&a.race,0,0,0,123);gp_weekend_start(&a.weekend,false,123);
+    for(unsigned mode=0;mode<2;mode++){a.chosen_mode=mode;a.screen=ScreenRole;save(&a,"role",mode);}
+    for(unsigned slot=0;slot<GP_SAVE_PROFILES;slot++){a.screen=ScreenSlots;a.slot_choice=slot;a.storage.profile=slot;save(&a,"slots",slot);}
+    a.screen=ScreenHistory;a.history_track=5;save(&a,"history_empty",0);a.screen=ScreenHistoryResult;save(&a,"history_empty",1);
+    for(unsigned t=0;t<GP_TRACK_COUNT;t++)for(unsigned k=0;k<2;k++){
+        GpRoundResult* r=&a.weekend.results[t][k];r->recorded=k==0||gp_weekend_sprint(&a.weekend,t);
+        if(r->recorded)for(unsigned id=0;id<GP_DRIVER_COUNT;id++)r->finish[id]=id|(id==21?128:0);
+    }
+    gp_championship_rebuild(&a.weekend);a.screen=ScreenChampionship;
+    for(unsigned teams=0;teams<2;teams++){
+        a.championship_teams=teams;
+        for(unsigned top=0;top<(teams?9u:20u);top++){a.standings_top=top;save(&a,"championship",teams*20+top);}
+    }
+    a.screen=ScreenChampions;save(&a,"champions",0);a.weekend.incomplete_history=true;save(&a,"champions",1);
+    a.screen=ScreenChampionship;a.standings_top=0;save(&a,"championship_partial",0);
+    for(unsigned t=0;t<GP_TRACK_COUNT;t++)for(unsigned k=0;k<2;k++){
+        a.history_track=t;a.history_sprint=k;a.screen=ScreenHistory;save(&a,"history",t*2+k);
+        a.screen=ScreenHistoryResult;
+        for(unsigned top=0;top<=19;top++){a.standings_top=top;save(&a,"history_result",t*40+k*20+top);}
+    }
+    gp_race_set_mode(&a.race,GpModeDriver,0);a.screen=ScreenRedFlag;save(&a,"single_red",0);
+    a.screen=ScreenDriver;save(&a,"single_driver",0);
+    a.qualifying.mode=GpModeDriver;gp_qualifying_start(&a.qualifying,0,0,123);a.qualifying.mode=GpModeDriver;
+    a.screen=ScreenQualifying;save(&a,"single_qual",0);
     printf("PASS: %u bitmap snapshots from real UI, fonts, badges and track data\n",frames);
 }

@@ -17,8 +17,8 @@ static GpRace duel(unsigned track,unsigned slot,unsigned seed){
     r.pace[slot]=GpPaceAttack;return r;
 }
 static void checksum(uint8_t* b){
-    uint32_t crc=UINT32_MAX;for(unsigned i=0;i<GP_SAVE_BYTES-4;i++){crc^=b[i];for(unsigned j=0;j<8;j++)crc=(crc>>1)^((0u-(crc&1))&0xedb88320u);}
-    crc=~crc;for(unsigned i=0;i<4;i++)b[GP_SAVE_BYTES-4+i]=(uint8_t)(crc>>(i*8));
+    uint32_t crc=UINT32_MAX;for(unsigned i=0;i<(b[4]<7?640u:GP_SAVE_BYTES)-4;i++){crc^=b[i];for(unsigned j=0;j<8;j++)crc=(crc>>1)^((0u-(crc&1))&0xedb88320u);}
+    crc=~crc;for(unsigned i=0;i<4;i++)b[(b[4]<7?640u:GP_SAVE_BYTES)-4+i]=(uint8_t)(crc>>(i*8));
 }
 int main(void){
     unsigned monaco=0,monza=0,eco=0,mistakes=0,blocked=0;
@@ -35,7 +35,7 @@ int main(void){
         assert(wide.drivers[slot].wear<save.drivers[slot].wear);
         for(unsigned i=1;i<GP_DRIVER_COUNT;i++)assert(!gp_driver_precedes(&narrow.drivers[narrow.ranking[i]],&narrow.drivers[narrow.ranking[i-1]]));
         GpSavedGame a={0},loaded={0};a.race=narrow;uint8_t bytes[GP_SAVE_BYTES],again[GP_SAVE_BYTES];
-        assert(gp_save_encode(&a,bytes)&&gp_save_decode(bytes,sizeof(bytes),&loaded)==GpSaveOk);
+        assert(gp_save_encode(&a,bytes)&&gp_save_decode(bytes,(bytes[4]<7?640u:sizeof(bytes)),&loaded)==GpSaveOk);
         gp_advance_lap(&a.race);gp_advance_lap(&loaded.race);
         assert(gp_save_encode(&a,bytes)&&gp_save_encode(&loaded,again)&&!memcmp(bytes,again,sizeof(bytes)));
     }
@@ -57,9 +57,9 @@ int main(void){
     r.drivers[2].temperature=90;r.drivers[0].time_ms+=10000;assert(gp_driver_pace(&r,2)==GpPaceNormal);
     /* v5 files have no battle state; migration keeps the old model until a new race. */
     GpSavedGame a={0},b={0};a.race=duel(5,0,123);uint8_t bytes[GP_SAVE_BYTES],bad[GP_SAVE_BYTES];assert(gp_save_encode(&a,bytes));
-    bytes[4]=5;memset(bytes+624,0,10);checksum(bytes);assert(gp_save_decode(bytes,sizeof(bytes),&b)==GpSaveOk&&!b.race.battle_rng);
+    bytes[4]=5;memset(bytes+624,0,10);checksum(bytes);assert(gp_save_decode(bytes,(bytes[4]<7?640u:sizeof(bytes)),&b)==GpSaveOk&&!b.race.battle_rng);
     gp_advance_lap(&a.race);assert(gp_save_encode(&a,bytes));
     unsigned offsets[]={628,629,630,631,632,633};
-    for(unsigned i=0;i<6;i++){memcpy(bad,bytes,sizeof(bad));bad[offsets[i]]=255;checksum(bad);assert(gp_save_decode(bad,sizeof(bad),&b)==GpSaveCorrupt);}
+    for(unsigned i=0;i<6;i++){memcpy(bad,bytes,sizeof(bad));bad[offsets[i]]=255;checksum(bad);assert(gp_save_decode(bad,(bad[4]<7?640u:sizeof(bad)),&b)==GpSaveCorrupt);}
     printf("PASS battles: 2000 paired duels, passes Monaco=%u Monza=%u Eco=%u; %u blocked, %u attack mistakes; both pilots, AI, pits/DNF/flags, v5 migration, report validation and deterministic save continuation\n",monaco,monza,eco,blocked,mistakes);
 }
