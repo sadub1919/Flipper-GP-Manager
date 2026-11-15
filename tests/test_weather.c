@@ -29,7 +29,7 @@ int main(void){
         if(wet==50){assert(good==3);assert(gp_weather_penalty(&w,3)<gp_weather_penalty(&w,1));assert(gp_weather_penalty(&w,3)<gp_weather_penalty(&w,4));}
         if(wet==100){assert(good==4);assert(gp_weather_penalty(&w,4)<gp_weather_penalty(&w,3));}
         for(unsigned tyre=0;tyre<GpTyreCount;tyre++){
-            GpSavedGame a={0},b={0};gp_race_start(&a.race,0,0,0,234);a.race.incident_rng=0;a.race.weather=w;
+            GpSavedGame a={0},b={0};gp_race_start(&a.race,0,0,0,234);a.race.battle_rng=0;a.race.incident_rng=0;a.race.weather=w;
             for(unsigned slot=0;slot<2;slot++){a.race.pit_queued[slot]=true;a.race.pit_tyres[slot]=tyre;}
             uint8_t bytes[GP_SAVE_BYTES];assert(gp_save_encode(&a,bytes));assert(gp_save_decode(bytes,sizeof(bytes),&b)==GpSaveOk);same(&a,&b);
             gp_advance_lap(&a.race);gp_advance_lap(&b.race);same(&a,&b);
@@ -41,7 +41,7 @@ int main(void){
     }
     /* Same race/random draws, dry -> wet -> drying: timely changes help both
        drivers, and AI changes without receiving player pit commands. */
-    GpRace smart,stay;gp_race_start(&smart,3,0,0,234);smart.incident_rng=0;smart.weather=condition(0);
+    GpRace smart,stay;gp_race_start(&smart,3,0,0,234);smart.battle_rng=0;smart.incident_rng=0;smart.weather=condition(0);
     for(unsigned i=0;i<GP_DRIVER_COUNT;i++)smart.drivers[i].tyre=GpTyreMedium;
     stay=smart;
     const unsigned wetness[12]={0,0,40,75,100,100,100,100,65,40,10,0};
@@ -57,7 +57,7 @@ int main(void){
         assert(gp_position(&smart,id)<gp_position(&stay,id));
     }
     /* Current weather and forecast survive a qualifying save, including RNG. */
-    GpSavedGame a={0},b={0};gp_race_start(&a.race,0,0,0,123);a.race.incident_rng=0;gp_weekend_start(&a.weekend,false,1);
+    GpSavedGame a={0},b={0};gp_race_start(&a.race,0,0,0,123);a.race.battle_rng=0;a.race.incident_rng=0;gp_weekend_start(&a.weekend,false,1);
     a.weekend.stage=GpStageFP1;a.weekend.phase=GpWeekendQualSetup;
     gp_qualifying_start(&a.weekend.qualifying,0,0,321);a.weekend.qualifying.weather=condition(80);a.race.weather=a.weekend.qualifying.weather;
     uint8_t bytes[GP_SAVE_BYTES];assert(gp_save_encode(&a,bytes));assert(gp_save_decode(bytes,sizeof(bytes),&b)==GpSaveOk);same(&a,&b);
@@ -69,7 +69,7 @@ int main(void){
         assert(gp_save_decode(corrupt,sizeof(corrupt),&b)==GpSaveCorrupt);
     }
     /* A real v2 weekend has no weather block; migrate without losing its session. */
-    bytes[4]=2;memset(bytes+512,0,112);checksum(bytes);
+    bytes[4]=2;memset(bytes+512,0,122);checksum(bytes);
     assert(gp_save_decode(bytes,sizeof(bytes),&b)==GpSaveOk);
     assert(b.weekend.phase==GpWeekendQualResult&&b.weekend.qualifying.run==a.weekend.qualifying.run);
     assert(b.race.weather.rng==0&&b.weekend.qualifying.weather.rng==0);

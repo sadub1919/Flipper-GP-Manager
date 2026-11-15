@@ -17,7 +17,7 @@ static void rechecksum(uint8_t* b){
 int main(void){
     unsigned snapshots=0;
     for(int full=0;full<2;full++)for(int track=0;track<GP_TRACK_COUNT;track++)for(int team=0;team<GP_TEAM_COUNT;team++){
-        GpSavedGame a={0};gp_race_start(&a.race,team,1,track,9876u+track+team);a.race.incident_rng=0;
+        GpSavedGame a={0};gp_race_start(&a.race,team,1,track,9876u+track+team);a.race.battle_rng=0;a.race.incident_rng=0;
         if(full)a.race.total_laps=gp_track_info(track)->actual_laps;
         uint8_t total=a.race.total_laps;
         for(int lap=0;lap<=total;lap++){
@@ -29,7 +29,7 @@ int main(void){
         assert(a.race.lap==total);
         assert(a.race.drivers[team*2].pits>0);
     }
-    GpSavedGame a={0},b={0},sentinel={0};gp_race_start(&a.race,3,1,5,2345);a.race.incident_rng=0;a.race.total_laps=78;a.clock.progress_ticks=3456;a.race.weather=(GpWeather){0};
+    GpSavedGame a={0},b={0},sentinel={0};gp_race_start(&a.race,3,1,5,2345);a.race.battle_rng=0;a.race.incident_rng=0;a.race.total_laps=78;a.clock.progress_ticks=3456;a.race.weather=(GpWeather){0};
     for(unsigned i=0;i<GP_DRIVER_COUNT;i++){a.race.drivers[i].tyre=GpTyreMedium;a.race.drivers[i].temperature=gp_tyre_optimal(GpTyreMedium);}
     a.race.pit_tyres[0]=a.race.pit_tyres[1]=GpTyreMedium;
     uint8_t bytes[GP_SAVE_BYTES],bad[GP_SAVE_BYTES];assert(gp_save_encode(&a,bytes));sentinel=a;
@@ -49,7 +49,7 @@ int main(void){
     for(unsigned i=0;i<380;i++){crc^=legacy[i];for(int j=0;j<8;j++)crc=(crc>>1)^((0u-(crc&1))&0xedb88320u);}
     crc=~crc;for(int i=0;i<4;i++)legacy[380+i]=(uint8_t)(crc>>(8*i));
     assert(gp_save_decode(legacy,sizeof(legacy),&b)==GpSaveOk);same(&a,&b);
-    memcpy(bad,bytes,sizeof(bad));bad[4]=2;memset(bad+528,0,96);rechecksum(bad);
+    memcpy(bad,bytes,sizeof(bad));bad[4]=2;memset(bad+528,0,106);rechecksum(bad);
     assert(gp_save_decode(bad,sizeof(bad),&b)==GpSaveOk);same(&a,&b);
     gp_weekend_start(&a.weekend,true,123);
     assert(gp_save_encode(&a,bad));

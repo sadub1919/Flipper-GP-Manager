@@ -35,6 +35,7 @@ typedef struct {
     uint16_t length_m;
     uint8_t tyre_wear;
     uint8_t difficulty;
+    uint8_t overtaking; /* game balance: 1 narrow, 5 many opportunities */
 } GpTrackInfo;
 
 typedef enum {GpDriverRunning=0,GpDriverAccident=1,GpDriverFailure=2} GpDriverStatus;
@@ -51,6 +52,10 @@ typedef struct {
     uint8_t pits;
 } GpDriver;
 
+typedef enum {GpBattleNone=0,GpBattlePassed,GpBattleHeld,GpBattleBlocked,GpBattleLost,GpBattleMistake} GpBattleResult;
+typedef struct {
+    uint8_t result,opponent,lap;
+} GpBattleReport;
 typedef struct {
     GpDriver drivers[GP_DRIVER_COUNT];
     uint8_t ranking[GP_DRIVER_COUNT];
@@ -70,6 +75,8 @@ typedef struct {
     uint8_t incident_serial;
     bool incident_pending;
     uint32_t incident_rng; /* independent stream; zero disables spontaneous incidents */
+    uint32_t battle_rng; /* zero preserves legacy racing rules */
+    GpBattleReport battle[2]; /* last on-track contest for each player driver */
     uint32_t rng_state;
     GpWeather weather;
 } GpRace;
@@ -94,6 +101,7 @@ bool gp_retire_driver(GpRace*,uint8_t,GpDriverStatus);
 bool gp_set_event(GpRace*,GpEvent,uint8_t laps);
 bool gp_restart_race(GpRace*);
 const char* gp_retirement_name(GpDriverStatus);
+GpPace gp_driver_pace(const GpRace*,uint8_t driver);
 uint32_t gp_pit_loss_ms(const GpRace* race);
 uint8_t gp_pit_rejoin_position(const GpRace* race,uint8_t driver);
 bool gp_pit_traffic(const GpRace* race,uint8_t driver);

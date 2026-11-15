@@ -7,7 +7,7 @@ int main(void){
     for(uint8_t track=0;track<GP_TRACK_COUNT;++track){
         for(uint8_t team=0;team<GP_TEAM_COUNT;++team){
             GpRace base,attack,save,pit,soft,repeat;
-            gp_race_start(&base,team,0,track,5500u+team*13u+track);
+            gp_race_start(&base,team,0,track,5500u+team*13u+track);base.battle_rng=0;
             base.weather=(GpWeather){0};
             for(unsigned i=0;i<GP_DRIVER_COUNT;i++){base.drivers[i].tyre=GpTyreMedium;base.drivers[i].temperature=gp_tyre_optimal(GpTyreMedium);}
             attack=save=pit=soft=repeat=base;

@@ -15,6 +15,8 @@ $CC $FLAGS -I. tests/test_weather.c gp_save.c weekend.c qualifying.c race_engine
 "$GP_TEST_TMP/weather"
 $CC $FLAGS -I. tests/test_tyres.c gp_save.c weekend.c qualifying.c race_engine.c weather.c tyre_model.c race_clock.c -o "$GP_TEST_TMP/tyres"
 "$GP_TEST_TMP/tyres"
+$CC $FLAGS -I. tests/test_battles.c gp_save.c weekend.c qualifying.c race_engine.c weather.c tyre_model.c race_clock.c -o "$GP_TEST_TMP/battles"
+"$GP_TEST_TMP/battles"
 $CC $FLAGS -I. tests/test_events.c gp_save.c weekend.c qualifying.c race_engine.c weather.c tyre_model.c race_clock.c -o "$GP_TEST_TMP/events"
 "$GP_TEST_TMP/events"
 $CC $FLAGS -I. tests/test_clock.c race_clock.c race_engine.c weather.c tyre_model.c -o "$GP_TEST_TMP/clock"
