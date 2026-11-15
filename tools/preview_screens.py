@@ -2,7 +2,7 @@
 """Create a contact sheet from test_screenshots.c output. No image dependencies."""
 import struct,zlib,sys
 from pathlib import Path
-names=['main_001','role_000','role_001','slots_002','championship_000','championship_020','champions_000','champions_001','history_empty_000','history_000','history_result_000','history_result_019','single_qual_000','single_red_000','help_017','help_018']
+names=['main_001','lights_001','lights_005','lights_006','finish_animation_000','finish_animation_001','message_000','message_004','message_008','message_012','message_020','message_032','career_000','career_001','career_002','career_003','next_season_000','career_partial_000','help_019','help_020']
 folder=Path(sys.argv[1]);output=Path(sys.argv[2]) if len(sys.argv)>2 else Path(__file__).resolve().parent.parent/'assets/ui_preview.png'
 scale=3;cols=4;cellw=128*scale+12;cellh=64*scale+12;w=cols*cellw+12;h=((len(names)+cols-1)//cols)*cellh+12
 pixels=[bytearray([230]*w) for _ in range(h)]

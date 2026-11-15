@@ -3,7 +3,7 @@
 #include <string.h>
 #include <limits.h>
 #include <stdlib.h>
-#define SAVE_VERSION 7u /* Binary layout AND simulation rules version. */
+#define SAVE_VERSION 8u /* Binary layout AND simulation rules version. */
 static void put32(uint8_t* p,uint32_t n){for(unsigned i=0;i<4;i++)p[i]=(uint8_t)(n>>(8*i));}
 static uint32_t get32(const uint8_t* p){uint32_t n=0;for(unsigned i=0;i<4;i++)n|=(uint32_t)p[i]<<(8*i);return n;}
 static uint32_t crc32(const uint8_t* p,size_t n){
@@ -96,6 +96,15 @@ bool gp_save_encode(const GpSavedGame* s,uint8_t out[GP_SAVE_BYTES]){
         BYTE(w->results[t][k].recorded);
         for(unsigned p=0;p<GP_DRIVER_COUNT;p++)BYTE(w->results[t][k].finish[p]);
     }
+    n=1728;const GpCareer* career=&w->career;
+    WORD(career->season);BYTE(career->partial_stats);BYTE(career->partial_totals);BYTE(career->history_count);
+    for(unsigned slot=0;slot<2;slot++)for(unsigned stat=0;stat<GP_CAREER_STATS;stat++)WORD(career->totals[slot][stat]);
+    for(unsigned t=0;t<GP_TRACK_COUNT;t++){BYTE(career->qual_pos[t][0]);BYTE(career->qual_pos[t][1]);BYTE(career->pole[t]);}
+    for(unsigned i=0;i<GP_CAREER_HISTORY;i++){
+        const GpSeasonSummary* h=&career->history[i];WORD(h->season);
+        for(unsigned slot=0;slot<2;slot++){WORD(h->points[slot]);BYTE(h->position[slot]);BYTE(h->wins[slot]);BYTE(h->podiums[slot]);BYTE(h->poles[slot]);BYTE(h->qualifying[slot]);}
+        BYTE(h->partial);
+    }
 #undef BYTE
 #undef WORD
     put32(out+GP_SAVE_BYTES-4,crc32(out,GP_SAVE_BYTES-4));return true;
@@ -104,7 +113,7 @@ static GpSaveStatus decode_into(const uint8_t* data,size_t len,GpSavedGame* out)
     if((len!=GP_SAVE_BYTES&&len!=640u&&len!=384u)||memcmp(data,"GPM6",4))return GpSaveCorrupt;
     if(get32(data+len-4)!=crc32(data,len-4))return GpSaveCorrupt;
     uint32_t version=get32(data+4);
-    if(version!=1u&&version!=2u&&version!=3u&&version!=4u&&version!=5u&&version!=6u&&version!=SAVE_VERSION)return GpSaveVersion;
+    if(version!=1u&&version!=2u&&version!=3u&&version!=4u&&version!=5u&&version!=6u&&version!=7u&&version!=SAVE_VERSION)return GpSaveVersion;
     if((version==1u&&len!=384u)||(version>=2u&&version<=6u&&len!=640u)||(version>=7u&&len!=GP_SAVE_BYTES))return GpSaveCorrupt;
     GpSavedGame* s=out;s->sequence=get32(data+8);GpRace* r=&s->race;size_t n=12;
 #define BYTE() data[n++]
@@ -169,6 +178,21 @@ static GpSaveStatus decode_into(const uint8_t* data,size_t len,GpSavedGame* out)
     }else if(s->weekend.active){
         s->weekend.incomplete_history=s->weekend.rounds_done>0||
             (gp_weekend_sprint(&s->weekend,r->track)&&s->weekend.stage>GpStageSprint);
+    }
+    if(version>=8u){
+        for(;n<1728;n++)if(data[n])return GpSaveCorrupt;
+        GpCareer* c=&s->weekend.career;WORD(c->season);
+        uint8_t partial=BYTE(),totals=BYTE();if(partial>1||totals>1)return GpSaveCorrupt;c->partial_stats=partial;c->partial_totals=totals;c->history_count=BYTE();
+        for(unsigned slot=0;slot<2;slot++)for(unsigned stat=0;stat<GP_CAREER_STATS;stat++)WORD(c->totals[slot][stat]);
+        for(unsigned t=0;t<GP_TRACK_COUNT;t++){c->qual_pos[t][0]=BYTE();c->qual_pos[t][1]=BYTE();c->pole[t]=BYTE();}
+        for(unsigned i=0;i<GP_CAREER_HISTORY;i++){
+            GpSeasonSummary* h=&c->history[i];WORD(h->season);
+            for(unsigned slot=0;slot<2;slot++){WORD(h->points[slot]);h->position[slot]=BYTE();h->wins[slot]=BYTE();h->podiums[slot]=BYTE();h->poles[slot]=BYTE();h->qualifying[slot]=BYTE();}
+            uint8_t flag=BYTE();if(flag>1)return GpSaveCorrupt;h->partial=flag;
+        }
+    }else if(s->weekend.active){
+        s->weekend.career.season=1;
+        s->weekend.career.partial_stats=s->weekend.rounds_done>0||s->weekend.stage>=GpStageRace;
     }
 #undef BYTE
 #undef WORD
