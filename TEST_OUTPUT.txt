@@ -2,20 +2,23 @@ PASS: 506 race simulations, 12 laps, both pilots, pits, standings
 PASS: 18821 short/full-distance save roundtrips; CRC, semantic validation, truncation at all 2048 bytes, readback/write/rename failures, backup recovery
 PASS: 200000 deterministic weather steps; 505 wetness/tyre save continuations; dry/rain/drying strategy improves both positions; AI and qualifying weather
 PASS: 36300 thermal combinations; cold outlaps, overheating/cooling, traffic snapshot, v3 migration and temperature saves; 88/100 undercuts and 48/100 overcuts gain a position
+PASS career: 16 seasons, lifetime stats/titles, five-season archive rollover, teammate scores, goals, idempotent advancement, slot saves, v7 migration and corrupt fields
 PASS championship: race/sprint points, DNF, countback, idempotent results, archive corruption, v6 migration, three independent slots/recovery, driver-mode teammate AI and restart
 PASS battles: 2000 paired duels, passes Monaco=1096 Monza=1899 Eco=320; 904 blocked, 64 attack mistakes; both pilots, AI, pits/DNF/flags, v5 migration, report validation and deterministic save continuation
 PASS: DNF freeze/order, SC/VSC duration/gaps, red restart/tyres, all-DNF finish, v4 migration and corruption; 3000 seeded races: 1128 accidents, 442 failures, 288 red stops, 544 SC, 738 VSC
 PASS live clock: pause, speed 1/2/5, 23 tracks, 12 laps
+PASS balance: 1380 paired track/distance/seed scenarios; normal beats constant attack in 1223, conserve in 288, attack wins both in 150
 PASS: 253 deterministic strategy cases (attack/save, tyres, pit, repeatability)
 PASS: 460 qualifying sessions, real grid used at race start
 PASS: 11 distinct 48x32 logos, valid bitmap bounds, nonempty
-PASS: 15478 UI frames, 117371 text labels, zero overlaps/offscreen text; left navigation, qualification flow
-PASS: 10000 six-sprint calendars; four complete 23-round seasons, team/driver modes, 57 practices/29 qualifying sessions/29 races each; 7541 save/reload checkpoints
+PASS: 15633 UI frames, 118164 text labels, zero overlaps/offscreen text; left navigation, qualification flow
+PASS presentation: five lights/off/skip/pause, real-time animation, nonblocking notices and priority, red save/restart, animated finish, career navigation/confirmation/reload
+PASS: 10000 six-sprint calendars; four complete 23-round seasons, team/driver modes, 57 practices/29 qualifying sessions/29 races each; 7527 save/reload checkpoints
 PASS: 8096 marker layouts, all 23 tracks/22 positions, coincident and lapped cars; correct neighbours, no clipped or overlapping labels
-PASS: 5170 bitmap snapshots from real UI, fonts, badges and track data
-PASS: 5170 screenshot baselines match
+PASS: 5232 bitmap snapshots from real UI, fonts, badges and track data
+PASS: 5232 screenshot baselines match
 PASS: generator processes all 23 circuit IDs and rejects missing real tracks
-PASS: application.fam valid, 0.8.0 id/version, source files present
+PASS: application.fam valid, 0.9.0 id/version, source files present
 PASS: all visible Russian labels supported, 5 distinct glyph pairs, no bad shortening
 
 ALL TESTS PASSED. Host checks complete; device checks are separate.

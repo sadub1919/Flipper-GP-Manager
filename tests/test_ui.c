@@ -82,7 +82,7 @@ int main(void){
         }
         a.screen=ScreenResults;render(&a);
     }
-    for(uint8_t help_page=0;help_page<19;++help_page){a.screen=ScreenHelp;a.help_page=help_page;render(&a);}
+    for(uint8_t help_page=0;help_page<21;++help_page){a.screen=ScreenHelp;a.help_page=help_page;render(&a);}
     a.screen=ScreenMap;event(&a,InputKeyLeft,InputTypeShort);assert(a.screen==ScreenStrategy);render(&a);
     event(&a,InputKeyRight,InputTypeShort);assert(a.screen==ScreenMap);render(&a);
     event(&a,InputKeyOk,InputTypeShort);assert(a.clock.paused);
@@ -128,6 +128,7 @@ int main(void){
     event(&a,InputKeyOk,InputTypeShort);assert(a.screen==ScreenGrid);
     event(&a,InputKeyOk,InputTypeShort);assert(a.screen==ScreenReplace);render(&a);
     event(&a,InputKeyOk,InputTypeShort);assert(a.screen==ScreenMap);
+    if(a.animation!=GpAnimationNone)event(&a,InputKeyOk,InputTypeShort);
     /* Every modal returns to its caller without changing race decisions. */
     for(int screen=ScreenMap;screen<=ScreenStrategy;screen++){
         a.screen=(GpScreen)screen;a.clock.paused=true;
@@ -167,7 +168,7 @@ int main(void){
     event(&a,InputKeyOk,InputTypeShort);process_storage(&a);
     assert(a.screen==ScreenNotice&&a.save_status==GpSaveMissing);render(&a);
     event(&a,InputKeyOk,InputTypeShort);assert(a.screen==ScreenMain);
-    a.chosen_track=5;a.full_distance=true;gp_qualify(&a.qualifying,5,123);start_race(&a);process_storage(&a);
+    a.chosen_track=5;a.full_distance=true;gp_qualify(&a.qualifying,5,123);start_race(&a);event(&a,InputKeyOk,InputTypeShort);process_storage(&a);
     assert(a.race.total_laps==78&&a.save_status==GpSaveOk);
     gp_advance_lap(&a.race);a.clock.progress_ticks=2345;a.race.pit_queued[0]=a.race.pit_queued[1]=true;
     event(&a,InputKeyBack,InputTypeShort);event(&a,InputKeyDown,InputTypeShort);render(&a);
@@ -182,7 +183,7 @@ int main(void){
     event(&a,InputKeyBack,InputTypeShort);assert(a.screen==ScreenPause);
     gp_test_fs.no_card=false;a.pause_item=1;event(&a,InputKeyOk,InputTypeShort);process_storage(&a);
     assert(a.screen==ScreenMain&&!a.autosave_blocked);
-    a.chosen_track=0;a.full_distance=false;start_race(&a);a.race.incident_rng=0;process_storage(&a);
+    a.chosen_track=0;a.full_distance=false;start_race(&a);event(&a,InputKeyOk,InputTypeShort);a.race.incident_rng=0;process_storage(&a);
     for(int lap=1;lap<=GP_TOTAL_LAPS;lap++){
         advance_time(&a,a.last_tick+GP_LAP_MS);assert(a.save_requested&&a.race.lap==lap);
         process_storage(&a);assert(a.save_status==GpSaveOk);
@@ -320,6 +321,29 @@ int main(void){
         a.screen=ScreenMain;a.menu_item=5;event(&a,InputKeyOk,InputTypeShort);a.slot_choice=slot;event(&a,InputKeyOk,InputTypeShort);
         event(&a,InputKeyOk,InputTypeShort);process_storage(&a);
         assert(a.save_status==GpSaveOk&&a.screen==ScreenQualifying&&a.race.track==slot&&a.preferred_driver==slot%2&&a.qualifying.mode==GpModeDriver);
+    }
+    a=(GpApp){0};gp_race_start(&a.race,0,0,0,123);gp_weekend_start(&a.weekend,false,123);
+    a.screen=ScreenNextSeason;render(&a);
+    a.screen=ScreenCareer;
+    for(unsigned page=0;page<4;page++){a.career_page=page;render(&a);}
+    a.weekend.career.season=65535;a.weekend.career.history_count=5;a.weekend.career.partial_stats=true;
+    for(unsigned slot=0;slot<2;slot++)for(unsigned stat=0;stat<6;stat++)a.weekend.career.totals[slot][stat]=65534u*(stat==4?623:(stat==5?1:23));
+    for(unsigned i=0;i<5;i++){
+        GpSeasonSummary* h=&a.weekend.career.history[i];h->season=65530+i;h->partial=true;
+        for(unsigned slot=0;slot<2;slot++){h->points[slot]=623;h->position[slot]=22;h->wins[slot]=h->podiums[slot]=h->poles[slot]=23;h->qualifying[slot]=slot?0:23;}
+    }
+    for(unsigned slot=0;slot<2;slot++)for(unsigned page=0;page<4;page++)for(unsigned h=0;h<5;h++){
+        gp_select_driver(&a.race,slot);a.career_page=page;a.career_history=h;render(&a);
+    }
+    for(unsigned team=0;team<GP_TEAM_COUNT;team++){gp_race_start(&a.race,team,0,0,123);a.career_page=1;render(&a);}
+    a.screen=ScreenMap;a.animation=GpAnimationStart;
+    for(unsigned ms=0;ms<=4200;ms+=100){a.animation_ticks=ms;render(&a);}
+    a.screen=ScreenResults;a.animation=GpAnimationFinish;
+    for(unsigned ms=0;ms<2400;ms+=180){a.animation_ticks=ms;render(&a);}
+    a.animation=GpAnimationNone;
+    static const char* messages[]={"ЖЁЛТЫЙ ФЛАГ","SC НА ТРАССЕ","VSC: БЕЗ ОБГОНОВ","VSC: ПОСЛЕДНИЙ КРУГ","SC: ПОСЛЕДНИЙ КРУГ","ЗЕЛЁНЫЙ ФЛАГ","ОЖИДАЕТСЯ ДОЖДЬ","ШИНЫ: РЕСУРС <25%","ОБГОН: NOR > VER","РЕСТАРТ ЗА SC"};
+    for(unsigned m=0;m<sizeof(messages)/sizeof(messages[0]);m++)for(unsigned screen=ScreenMap;screen<=ScreenStrategy;screen++){
+        a.screen=screen;notify_race(&a,messages[m],true);render(&a);
     }
     printf("PASS: %d UI frames, %d text labels, zero overlaps/offscreen text; left navigation, qualification flow\n",frames,checked_labels);
 }

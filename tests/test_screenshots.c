@@ -60,7 +60,7 @@ int main(int argc,char** argv){
     a.screen=ScreenStandings;a.standings_top=0;save(&a,"start",0);
     a.race.lap=12;for(int i=0;i<GP_DRIVER_COUNT;i++){a.race.ranking[i]=i;a.race.drivers[i].time_ms=i*1000000u;}
     for(int screen=0;screen<2;screen++){a.screen=screen?ScreenResults:ScreenStandings;for(int top=0;top<=19;top++){a.standings_top=top;save(&a,screen?"results":"large_gap",top);}}
-    a.screen=ScreenHelp;for(int i=0;i<19;i++){a.help_page=i;save(&a,"help",i);}
+    a.screen=ScreenHelp;for(int i=0;i<21;i++){a.help_page=i;save(&a,"help",i);}
     a.screen=ScreenPause;for(int i=0;i<3;i++){a.pause_item=i;save(&a,"pause",i);}
     for(int t=0;t<GP_TRACK_COUNT;t++){
         a.chosen_track=t;a.screen=ScreenDistance;
@@ -170,5 +170,22 @@ int main(int argc,char** argv){
     a.screen=ScreenDriver;save(&a,"single_driver",0);
     a.qualifying.mode=GpModeDriver;gp_qualifying_start(&a.qualifying,0,0,123);a.qualifying.mode=GpModeDriver;
     a.screen=ScreenQualifying;save(&a,"single_qual",0);
+    a=(GpApp){0};gp_race_start(&a.race,0,0,0,123);gp_weekend_start(&a.weekend,false,123);
+    a.screen=ScreenMap;a.animation=GpAnimationStart;
+    for(unsigned phase=0;phase<=6;phase++){a.animation_ticks=phase*650;save(&a,"lights",phase);}
+    a.screen=ScreenResults;a.animation=GpAnimationFinish;
+    for(unsigned phase=0;phase<3;phase++){a.animation_ticks=phase*180;save(&a,"finish_animation",phase);}
+    a.animation=GpAnimationNone;a.screen=ScreenNextSeason;save(&a,"next_season",0);
+    a.screen=ScreenCareer;
+    for(unsigned page=0;page<4;page++){a.career_page=page;save(&a,"career_empty",page);}
+    a.weekend.career.season=2;a.weekend.career.history_count=1;
+    a.weekend.career.history[0]=(GpSeasonSummary){.season=1,.points={210,185},.position={3,4},.wins={3,2},.podiums={7,6},.poles={4,2},.qualifying={14,9}};
+    a.weekend.career.totals[0][0]=23;a.weekend.career.totals[0][1]=3;a.weekend.career.totals[0][2]=7;a.weekend.career.totals[0][3]=4;a.weekend.career.totals[0][4]=210;
+    for(unsigned page=0;page<4;page++){a.career_page=page;save(&a,"career",page);}
+    a.weekend.career.partial_totals=true;a.career_page=2;save(&a,"career_partial",0);
+    static const char* messages[]={"ЖЁЛТЫЙ ФЛАГ","SC НА ТРАССЕ","VSC: БЕЗ ОБГОНОВ","VSC: ПОСЛЕДНИЙ КРУГ","SC: ПОСЛЕДНИЙ КРУГ","ЗЕЛЁНЫЙ ФЛАГ","ОЖИДАЕТСЯ ДОЖДЬ","ШИНЫ: РЕСУРС <25%","ОБГОН: NOR > VER","РЕСТАРТ ЗА SC"};
+    for(unsigned m=0;m<sizeof(messages)/sizeof(messages[0]);m++)for(unsigned screen=ScreenMap;screen<=ScreenStrategy;screen++){
+        a.screen=screen;notify_race(&a,messages[m],true);save(&a,"message",m*4+screen-ScreenMap);
+    }
     printf("PASS: %u bitmap snapshots from real UI, fonts, badges and track data\n",frames);
 }
